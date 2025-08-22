@@ -48,7 +48,7 @@ type WorkloadOp struct {
 
 func (w *Workload) Next() WorkloadOp {
 	key := w.keygen.Uint64() % w.records
-	isRead := w.gen.Uint64() > w.readThreshold
+	isRead := w.gen.Uint64() < w.readThreshold		// should be < instead of > !!
 	return WorkloadOp{Key: key, IsRead: isRead}
 }
 

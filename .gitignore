@@ -6,8 +6,8 @@ bin/
 *.dylib
 
 # Test and log files
-logs/
-*.log
+# logs/
+# *.log
 *.tmp
 *.test
 
