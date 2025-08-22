@@ -1,0 +1,23 @@
+# Build artifacts
+bin/
+*.exe
+*.o
+*.so
+*.dylib
+
+# Test and log files
+logs/
+*.log
+*.tmp
+*.test
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
