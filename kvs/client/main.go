@@ -128,13 +128,6 @@ func main() {
 	done := atomic.Bool{}
 	resultsCh := make(chan uint64)
 
-	//host := hosts[0]
-	//clientId := 0
-	//go func(clientId int) {
-	//	workload := kvs.NewWorkload(*workload, *theta)
-	//	runClient(clientId, host, &done, workload, resultsCh)
-	//}(clientId)
-
 	numClients := 128
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
