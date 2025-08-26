@@ -10,10 +10,25 @@ type PutResponse struct {
 
 type GetRequest struct {
 	Key   string
-	Value string
 }
 
 type GetResponse struct {
 	Key   string
 	Value string
+}
+
+type BatchGetRequest struct {
+	Keys []string
+}
+
+type BatchGetResponse struct {
+	Values []string
+}
+
+type BatchPutRequest struct {
+	Keys   []string
+	Values []string
+}
+
+type BatchPutResponse struct {
 }

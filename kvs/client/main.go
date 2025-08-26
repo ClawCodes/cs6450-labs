@@ -50,28 +50,64 @@ func (client *Client) Put(key string, value string) {
 	}
 }
 
+func (client *Client) BatchGet(keys []string) []string {
+	request := kvs.BatchGetRequest{Keys: keys}
+	response := kvs.BatchGetResponse{}
+	err := client.rpcClient.Call("KVService.BatchGet", &request, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return response.Values
+}
+
+func (client *Client) BatchPut(keys []string, values []string) {
+	request := kvs.BatchPutRequest{Keys: keys, Values: values}
+	response := kvs.BatchPutResponse{}
+	err := client.rpcClient.Call("KVService.BatchPut", &request, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	client := Dial(addr)
 
 	value := strings.Repeat("x", 128)
-	const batchSize = 1024
+	const batchSize = 100
 
 	opsCompleted := uint64(0)
 
 	for !done.Load() {
+		readKeys := make([]string, 0, batchSize)
+		writeKeys := make([]string, 0, batchSize)
+		writeValues := make([]string, 0, batchSize)
+
 		for j := 0; j < batchSize; j++ {
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
+
 			if op.IsRead {
-				client.Get(key)
+				// client.Get(key)
+				readKeys = append(readKeys, key)
 			} else {
-				client.Put(key, value)
+				// client.Put(key, value)
+				writeKeys = append(writeKeys, key)
+				writeValues = append(writeValues, value)
 			}
-			opsCompleted++
+			if len(readKeys) > 0 {
+				client.BatchGet(readKeys)  // ← 1 次 RPC 處理多個讀取
+			}
+		
+			// 批次執行寫入
+			if len(writeKeys) > 0 {
+				client.BatchPut(writeKeys, writeValues)  // ← 1 次 RPC 處理多個寫入
+			}
+			// opsCompleted++
+			opsCompleted += uint64(batchSize)
 		}
 	}
 
-	fmt.Printf("Client %d finished operations.\n", id)
+	// fmt.Printf("Client %d finished operations.\n", id)
 
 	resultsCh <- opsCompleted
 }
@@ -92,7 +128,7 @@ func main() {
 
 	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
 	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
-	workload := flag.String("workload", "YCSB-A", "Workload type (YCSB-A, YCSB-B, YCSB-C)")		// Grading is using "YCSB-A", not "YCSB-B"
+	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
 	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
 	flag.Parse()
 
@@ -113,16 +149,10 @@ func main() {
 	done := atomic.Bool{}
 	resultsCh := make(chan uint64)
 
-	// host := hosts[0]
-	// clientId := 0
-	// go func(clientId int) {
-	// 	workload := kvs.NewWorkload(*workload, *theta)
-	// 	runClient(clientId, host, &done, workload, resultsCh)
-	// }(clientId)
+	host := hosts[0]
 	numClients := 128
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
-			host := hosts[clientId % len(hosts)]
 
 			workload := kvs.NewWorkload(*workload, *theta)
 			runClient(clientId, host, &done, workload, resultsCh)
@@ -132,7 +162,6 @@ func main() {
 	time.Sleep(time.Duration(*secs) * time.Second)
 	done.Store(true)
 
-	// opsCompleted := <-resultsCh
 	opsCompleted := uint64(0)
 	for i := 0; i < numClients; i++ {
 		opsCompleted += <-resultsCh

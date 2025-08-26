@@ -30,7 +30,6 @@ for i := 0; i < numClients; i++ {
 
 host := hosts[0] // comment out this
 
-numClients := 32
 numClients := 128
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
