@@ -92,7 +92,7 @@ func main() {
 
 	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
 	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
-	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
+	workload := flag.String("workload", "YCSB-A", "Workload type (YCSB-A, YCSB-B, YCSB-C)")		// Grading is using "YCSB-A", not "YCSB-B"
 	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
 	flag.Parse()
 
@@ -113,17 +113,30 @@ func main() {
 	done := atomic.Bool{}
 	resultsCh := make(chan uint64)
 
-	host := hosts[0]
-	clientId := 0
-	go func(clientId int) {
-		workload := kvs.NewWorkload(*workload, *theta)
-		runClient(clientId, host, &done, workload, resultsCh)
-	}(clientId)
+	// host := hosts[0]
+	// clientId := 0
+	// go func(clientId int) {
+	// 	workload := kvs.NewWorkload(*workload, *theta)
+	// 	runClient(clientId, host, &done, workload, resultsCh)
+	// }(clientId)
+	numClients := 256
+	for i := 0; i < numClients; i++ {
+		go func(clientId int) {
+			host := hosts[clientId % len(hosts)]
+
+			workload := kvs.NewWorkload(*workload, *theta)
+			runClient(clientId, host, &done, workload, resultsCh)
+		}(i)
+	}
 
 	time.Sleep(time.Duration(*secs) * time.Second)
 	done.Store(true)
 
-	opsCompleted := <-resultsCh
+	// opsCompleted := <-resultsCh
+	opsCompleted := uint64(0)
+	for i := 0; i < numClients; i++ {
+		opsCompleted += <-resultsCh
+	}
 
 	elapsed := time.Since(start)
 
