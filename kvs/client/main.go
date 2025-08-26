@@ -38,6 +38,16 @@ func (client *Client) Get(key string) string {
 	return response.Value
 }
 
+func (client *Client) BatchGet(keys []string) []string {
+	request := kvs.BatchGetRequest{Keys: keys}
+	response := kvs.BatchGetResponse{}
+	err := client.rpcClient.Call("KVService.BatchGet", &request, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return response.Values
+}
+
 func (client *Client) Put(key string, value string) {
 	request := kvs.PutRequest{
 		Key:   key,
@@ -48,16 +58,6 @@ func (client *Client) Put(key string, value string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func (client *Client) BatchGet(keys []string) []string {
-	request := kvs.BatchGetRequest{Keys: keys}
-	response := kvs.BatchGetResponse{}
-	err := client.rpcClient.Call("KVService.BatchGet", &request, &response)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return response.Values
 }
 
 func (client *Client) BatchPut(keys []string, values []string) {
@@ -73,11 +73,12 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 	client := Dial(addr)
 
 	value := strings.Repeat("x", 128)
-	const batchSize = 100
+	const batchSize = 300
 
 	opsCompleted := uint64(0)
 
 	for !done.Load() {
+		// "Collect" a batch of ops
 		readKeys := make([]string, 0, batchSize)
 		writeKeys := make([]string, 0, batchSize)
 		writeValues := make([]string, 0, batchSize)
@@ -87,27 +88,25 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 			key := fmt.Sprintf("%d", op.Key)
 
 			if op.IsRead {
-				// client.Get(key)
 				readKeys = append(readKeys, key)
 			} else {
-				// client.Put(key, value)
 				writeKeys = append(writeKeys, key)
 				writeValues = append(writeValues, value)
 			}
-			if len(readKeys) > 0 {
-				client.BatchGet(readKeys)  // ← 1 次 RPC 處理多個讀取
-			}
-		
-			// 批次執行寫入
-			if len(writeKeys) > 0 {
-				client.BatchPut(writeKeys, writeValues)  // ← 1 次 RPC 處理多個寫入
-			}
-			// opsCompleted++
-			opsCompleted += uint64(batchSize)
 		}
+
+		if len(readKeys) > 0 {
+			client.BatchGet(readKeys) // One RPC deals with multiple read ops
+		}
+
+		if len(writeKeys) > 0 {
+			client.BatchPut(writeKeys, writeValues) // One RPC deals with multiple write ops
+		}
+
+		opsCompleted += uint64(batchSize)
 	}
 
-	// fmt.Printf("Client %d finished operations.\n", id)
+	fmt.Printf("Client %d finished operations.\n", id)
 
 	resultsCh <- opsCompleted
 }
