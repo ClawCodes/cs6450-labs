@@ -13,6 +13,5 @@ type GetRequest struct {
 }
 
 type GetResponse struct {
-	Key   string
 	Value string
 }
