@@ -165,16 +165,11 @@ func (kv *KVService) printStats() {
 
 	// Stat of cache
 	cacheSize := atomic.LoadInt64(&kv.cacheSize)
-
-	fmt.Printf("get/s %0.2f\nput/s %0.2f\nops/s %0.2f\n\n",
-		float64(diff.gets)/deltaS,
-		float64(diff.puts)/deltaS,
-		float64(diff.gets+diff.puts)/deltaS)
-
 	hits := atomic.LoadInt64(&kv.cacheHits)
 	miss := atomic.LoadInt64(&kv.cacheMiss)
 	total := hits + miss
 	hitRate := 0.0
+
 	if total > 0 {
 		hitRate = float64(hits) / float64(total) * 100
 	}

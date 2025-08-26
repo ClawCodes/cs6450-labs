@@ -1,0 +1,173 @@
+No Cache
+
+Starting KVS server on :8080
+get/s 0.00
+put/s 0.00
+ops/s 0.00
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 0.00
+put/s 0.00
+ops/s 0.00
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 0.00
+put/s 0.00
+ops/s 0.00
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 0.00
+put/s 0.00
+ops/s 0.00
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 3854.92
+put/s 0.00
+ops/s 3854.92
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 7419009.59
+put/s 380231.06
+ops/s 7799240.65
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 10556463.83
+put/s 559209.68
+ops/s 11115673.51
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 10274179.13
+put/s 534365.56
+ops/s 10808544.69
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 9651794.93
+put/s 513048.23
+ops/s 10164843.15
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 9523007.76
+put/s 501642.98
+ops/s 10024650.74
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 9222391.84
+put/s 485430.78
+ops/s 9707822.62
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8978827.32
+put/s 468557.26
+ops/s 9447384.58
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 9084137.78
+put/s 478567.01
+ops/s 9562704.80
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8969622.63
+put/s 473106.02
+ops/s 9442728.65
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8826403.25
+put/s 464178.39
+ops/s 9290581.64
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8730469.20
+put/s 458076.25
+ops/s 9188545.45
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8560278.24
+put/s 450907.49
+ops/s 9011185.73
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8522254.21
+put/s 448426.71
+ops/s 8970680.92
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8514245.35
+put/s 453338.70
+ops/s 8967584.04
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8787669.16
+put/s 458484.65
+ops/s 9246153.81
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8336011.99
+put/s 437270.85
+ops/s 8773282.84
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8456737.52
+put/s 449189.56
+ops/s 8905927.09
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8497138.59
+put/s 443804.28
+ops/s 8940942.87
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8168473.67
+put/s 433455.91
+ops/s 8601929.59
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8747119.02
+put/s 456376.09
+ops/s 9203495.11
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8061718.24
+put/s 428941.89
+ops/s 8490660.14
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8722260.79
+put/s 452925.63
+ops/s 9175186.41
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8080492.89
+put/s 429688.33
+ops/s 8510181.22
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8556872.76
+put/s 444284.75
+ops/s 9001157.51
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8308525.72
+put/s 441558.96
+ops/s 8750084.67
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8230361.84
+put/s 428781.56
+ops/s 8659143.41
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8617435.43
+put/s 453567.76
+ops/s 9071003.18
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8020116.07
+put/s 426536.83
+ops/s 8446652.90
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+
+get/s 8411821.20
+put/s 444742.91
+ops/s 8856564.11
+Cache: 0/0 (NaN% full), Hit rate: 0.0%
+

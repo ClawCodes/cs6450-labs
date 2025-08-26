@@ -73,7 +73,7 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 	client := Dial(addr)
 
 	value := strings.Repeat("x", 128)
-	const batchSize = 300
+	const batchSize = 1024
 
 	opsCompleted := uint64(0)
 
@@ -152,7 +152,6 @@ func main() {
 	numClients := 128
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
-
 			workload := kvs.NewWorkload(*workload, *theta)
 			runClient(clientId, host, &done, workload, resultsCh)
 		}(i)
