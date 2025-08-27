@@ -68,7 +68,7 @@ func (kv *KVService) BatchOp(request *kvs.BatchOpRequest, response *kvs.BatchOpR
 	for i, op := range request.Operations {
 		if op.OpType == "GET" {
 			atomic.AddUint64(&kv.stats.gets, 1)
-
+			
 			if value, found := kv.mp.Load(op.Key); found {
 				response.Results[i] = value.(string)
 			} else {

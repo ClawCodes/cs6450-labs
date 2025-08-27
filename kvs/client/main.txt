@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"hash/fnv"
 	"log"
 	"net/rpc"
 	"strings"
@@ -60,14 +59,9 @@ func (client *Client) BatchOp(operations []kvs.Operation) []string {
 	}
 	return response.Results
 }
-func serverFromKey(key *string, servers *[]*Client) Client {
-	h := fnv.New32a()
-	h.Write([]byte(*key))
-	idx := int(h.Sum32()) % len(*servers)
-	return *(*servers)[idx]
-}
-func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-	//client := Dial(addr)
+
+func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
+	client := Dial(addr)
 
 	value := strings.Repeat("x", 128)
 	const batchSize = 1024
@@ -76,43 +70,30 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 
 	for !done.Load() {
 		// Collect operations in order to preserve linearizability
-		serverOperations := make(map[Client][]kvs.Operation)
-		//operations := make([]kvs.Operation, 0, batchSize)
+		operations := make([]kvs.Operation, 0, batchSize)
 
 		for j := 0; j < batchSize; j++ {
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
-			server := serverFromKey(&key, &servers)
+
 			if op.IsRead {
-				if _, ok := serverOperations[server]; !ok {
-					//server has no operations mapped to it yet
-					serverOperations[server] = make([]kvs.Operation, 0, batchSize)
-				}
-				serverOperations[server] = append(serverOperations[server], kvs.Operation{
+				operations = append(operations, kvs.Operation{
 					OpType: "GET",
 					Key:    key,
 					Value:  "",
 				})
-
 			} else {
-				if _, ok := serverOperations[server]; !ok {
-					//server has no operations mapped to it yet
-					serverOperations[server] = make([]kvs.Operation, 0, batchSize)
-				}
-				serverOperations[server] = append(serverOperations[server], kvs.Operation{
+				operations = append(operations, kvs.Operation{
 					OpType: "PUT",
 					Key:    key,
 					Value:  value,
 				})
-
 			}
 		}
 
 		// Execute batch operation preserving order
-		//client.BatchOp(operations)
-		for server, operations := range serverOperations {
-			server.BatchOp(operations)
-		}
+		client.BatchOp(operations)
+
 		opsCompleted += uint64(batchSize)
 	}
 
@@ -131,13 +112,7 @@ func (h *HostList) Set(value string) error {
 	*h = strings.Split(value, ",")
 	return nil
 }
-func dialHosts(servers HostList) []*Client {
-	var clients []*Client
-	for _, addr := range servers {
-		clients = append(clients, Dial(addr))
-	}
-	return clients
-}
+
 func main() {
 	hosts := HostList{}
 
@@ -164,13 +139,12 @@ func main() {
 	done := atomic.Bool{}
 	resultsCh := make(chan uint64)
 
-	//host := hosts[0]
+	host := hosts[0]
 	numClients := 128
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
-			connections := dialHosts(hosts)
 			workload := kvs.NewWorkload(*workload, *theta)
-			runClient(clientId, connections, &done, workload, resultsCh)
+			runClient(clientId, host, &done, workload, resultsCh)
 		}(i)
 	}
 

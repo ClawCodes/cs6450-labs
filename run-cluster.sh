@@ -42,10 +42,19 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_ROOT="${ROOT}/logs"
 
+# function cluster_size() {
+#     geni-get -a | \
+#         grep -Po '<host name=\\".*?\"' | \
+#         sed 's/<host name=\\"\(.*\)\\"/\1/' | \
+#         sort | \
+#         uniq | \
+#         wc -l
+# }
+
 function cluster_size() {
     geni-get -a | \
-        grep -Po '<host name=\\".*?\"' | \
-        sed 's/<host name=\\"\(.*\)\\"/\1/' | \
+        grep -Po '<interface_ref client_id=\\".*?\"' | \
+        sed 's/<interface_ref client_ide=\\"\(.*\)\\"/\1/' | \
         sort | \
         uniq | \
         wc -l
