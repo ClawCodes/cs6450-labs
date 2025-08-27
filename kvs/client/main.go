@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/rpc"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,6 +15,12 @@ import (
 
 type Client struct {
 	rpcClient *rpc.Client
+	rpcCache  sync.Map
+}
+
+type clientCacheLine struct {
+	Value        string
+	Invalidation chan struct{}
 }
 
 func Dial(addr string) *Client {
@@ -22,10 +29,22 @@ func Dial(addr string) *Client {
 		log.Fatal(err)
 	}
 
-	return &Client{rpcClient}
+	return &Client{rpcClient, sync.Map{}}
 }
 
 func (client *Client) Get(key string) string {
+	// look in rpcCache first for valid entry
+	if val, exists := client.rpcCache.LoadOrStore(key, make(chan struct{}, 1)); exists {
+		// if key is in cache, check invalidation channel
+		ch := val.(chan struct{})
+		select {
+		case <-ch: // an invalidation signal is read
+			// handle invalidation
+		default:
+			// continue with
+		}
+	}
+
 	request := kvs.GetRequest{
 		Key: key,
 	}
