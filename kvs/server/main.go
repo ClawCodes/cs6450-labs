@@ -29,11 +29,6 @@ func (s *Stats) Sub(prev *Stats) Stats { // curr Stats take prev Stats as param,
 type KVService struct {
 	// sync.Mutex -> embedded field -> KVService automatically inherits the methods of sync.Mutex
 	mp         sync.Map
-	cache      sync.Map
-	cacheSize  int64
-	maxCache   int64
-	cacheHits  int64
-	cacheMiss  int64
 	stats      Stats
 	prevStats  Stats
 	lastPrint  time.Time
@@ -42,7 +37,6 @@ type KVService struct {
 
 func NewKVService() *KVService { // return a pointer that points to an instance of KVService type
 	kvs := &KVService{
-		maxCache:  200000,
 		lastPrint: time.Now(),
 	}
 	return kvs
@@ -53,22 +47,8 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 
 	key := request.Key
 
-	if value, ok := kv.cache.Load(key); ok {
-		atomic.AddInt64(&kv.cacheHits, 1)
-		response.Value = value.(string)
-		return nil
-	}
-
-	atomic.AddInt64(&kv.cacheMiss, 1)
-
 	if value, found := kv.mp.Load(key); found {
 		response.Value = value.(string)
-
-		if atomic.LoadInt64(&kv.cacheSize) < kv.maxCache {
-			kv.cache.Store(key, value.(string))
-			atomic.AddInt64(&kv.cacheSize, 1)
-		}
-		return nil
 	}
 	return nil
 }
@@ -77,14 +57,7 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	atomic.AddUint64(&kv.stats.puts, 1)
 
 	key, value := request.Key, request.Value
-	kv.mp.Store(key, value) // Store to major map anyway
-
-	if _, exists := kv.cache.Load(key); exists { // Check whether the key is in the cache, if exists
-		kv.cache.Store(key, value) // Update the value associated with the key
-	} else if atomic.LoadInt64(&kv.cacheSize) < kv.maxCache { // if not exists AND still has room
-		kv.cache.Store(key, value)        // Store new key-value pair
-		atomic.AddInt64(&kv.cacheSize, 1) // Remumber to increment cacheSize
-	}
+	kv.mp.Store(key, value)
 	return nil
 }
 
@@ -96,22 +69,8 @@ func (kv *KVService) BatchOp(request *kvs.BatchOpRequest, response *kvs.BatchOpR
 		if op.OpType == "GET" {
 			atomic.AddUint64(&kv.stats.gets, 1)
 			
-			// Check cache first
-			if value, ok := kv.cache.Load(op.Key); ok {
-				atomic.AddInt64(&kv.cacheHits, 1)
-				response.Results[i] = value.(string)
-				continue
-			}
-
-			atomic.AddInt64(&kv.cacheMiss, 1)
-
 			if value, found := kv.mp.Load(op.Key); found {
 				response.Results[i] = value.(string)
-
-				if atomic.LoadInt64(&kv.cacheSize) < kv.maxCache {
-					kv.cache.Store(op.Key, value.(string))
-					atomic.AddInt64(&kv.cacheSize, 1)
-				}
 			} else {
 				response.Results[i] = ""
 			}
@@ -119,14 +78,6 @@ func (kv *KVService) BatchOp(request *kvs.BatchOpRequest, response *kvs.BatchOpR
 			atomic.AddUint64(&kv.stats.puts, 1)
 
 			kv.mp.Store(op.Key, op.Value)
-
-			if _, exists := kv.cache.Load(op.Key); exists {
-				kv.cache.Store(op.Key, op.Value)
-			} else if atomic.LoadInt64(&kv.cacheSize) < kv.maxCache {
-				kv.cache.Store(op.Key, op.Value)
-				atomic.AddInt64(&kv.cacheSize, 1)
-			}
-			
 			response.Results[i] = ""
 		}
 	}
@@ -160,26 +111,10 @@ func (kv *KVService) printStats() {
 	diff := stats.Sub(&prevStats)
 	deltaS := now.Sub(lastPrint).Seconds()
 
-	// Stat of cache
-	cacheSize := atomic.LoadInt64(&kv.cacheSize)
-	hits := atomic.LoadInt64(&kv.cacheHits)
-	miss := atomic.LoadInt64(&kv.cacheMiss)
-	total := hits + miss
-	hitRate := 0.0
-
-	if total > 0 {
-		hitRate = float64(hits) / float64(total) * 100
-	}
-
-	fmt.Printf("get/s %0.2f\nput/s %0.2f\nops/s %0.2f\n",
+	fmt.Printf("get/s %0.2f\nput/s %0.2f\nops/s %0.2f\n\n",
 		float64(diff.gets)/deltaS,
 		float64(diff.puts)/deltaS,
 		float64(diff.gets+diff.puts)/deltaS)
-
-	fmt.Printf("Cache: %d/%d (%.1f%% full), Hit rate: %.1f%%\n\n",
-		cacheSize, kv.maxCache,
-		float64(cacheSize)/float64(kv.maxCache)*100,
-		hitRate)
 }
 
 func main() {
