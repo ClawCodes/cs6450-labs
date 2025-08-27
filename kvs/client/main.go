@@ -38,16 +38,6 @@ func (client *Client) Get(key string) string {
 	return response.Value
 }
 
-func (client *Client) BatchGet(keys []string) []string {
-	request := kvs.BatchGetRequest{Keys: keys}
-	response := kvs.BatchGetResponse{}
-	err := client.rpcClient.Call("KVService.BatchGet", &request, &response)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return response.Values
-}
-
 func (client *Client) Put(key string, value string) {
 	request := kvs.PutRequest{
 		Key:   key,
@@ -60,13 +50,14 @@ func (client *Client) Put(key string, value string) {
 	}
 }
 
-func (client *Client) BatchPut(keys []string, values []string) {
-	request := kvs.BatchPutRequest{Keys: keys, Values: values}
-	response := kvs.BatchPutResponse{}
-	err := client.rpcClient.Call("KVService.BatchPut", &request, &response)
+func (client *Client) BatchOp(operations []kvs.Operation) []string {
+	request := kvs.BatchOpRequest{Operations: operations}
+	response := kvs.BatchOpResponse{}
+	err := client.rpcClient.Call("KVService.BatchOp", &request, &response)
 	if err != nil {
 		log.Fatal(err)
 	}
+	return response.Results
 }
 
 func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
@@ -78,30 +69,30 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 	opsCompleted := uint64(0)
 
 	for !done.Load() {
-		// "Collect" a batch of ops
-		readKeys := make([]string, 0, batchSize)
-		writeKeys := make([]string, 0, batchSize)
-		writeValues := make([]string, 0, batchSize)
+		// Collect operations in order to preserve linearizability
+		operations := make([]kvs.Operation, 0, batchSize)
 
 		for j := 0; j < batchSize; j++ {
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
 
 			if op.IsRead {
-				readKeys = append(readKeys, key)
+				operations = append(operations, kvs.Operation{
+					OpType: "GET",
+					Key:    key,
+					Value:  "",
+				})
 			} else {
-				writeKeys = append(writeKeys, key)
-				writeValues = append(writeValues, value)
+				operations = append(operations, kvs.Operation{
+					OpType: "PUT",
+					Key:    key,
+					Value:  value,
+				})
 			}
 		}
 
-		if len(readKeys) > 0 {
-			client.BatchGet(readKeys) // One RPC deals with multiple read ops
-		}
-
-		if len(writeKeys) > 0 {
-			client.BatchPut(writeKeys, writeValues) // One RPC deals with multiple write ops
-		}
+		// Execute batch operation preserving order
+		client.BatchOp(operations)
 
 		opsCompleted += uint64(batchSize)
 	}

@@ -73,34 +73,6 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 	return nil
 }
 
-func (kv *KVService) BatchGet(request *kvs.BatchGetRequest, response *kvs.BatchGetResponse) error {
-	numKeys := len(request.Keys)
-	response.Values = make([]string, numKeys)
-
-	atomic.AddUint64(&kv.stats.gets, uint64(numKeys))
-
-	for i, key := range request.Keys {
-		// key in the cache
-		if value, found := kv.cache.Load(key); found {
-			atomic.AddInt64(&kv.cacheHits, 1)
-			response.Values[i] = value.(string)
-			continue
-		}
-
-		// key not in the cache
-		atomic.AddInt64(&kv.cacheMiss, 1)
-		if value, found := kv.mp.Load(key); found {
-			response.Values[i] = value.(string)
-
-			if atomic.LoadInt64(&kv.cacheSize) < kv.maxCache {
-				kv.cache.Store(key, value.(string))
-				atomic.AddInt64(&kv.cacheSize, 1)
-			}
-		}
-	}
-	return nil
-}
-
 func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
 	atomic.AddUint64(&kv.stats.puts, 1)
 
@@ -116,21 +88,46 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	return nil
 }
 
-func (kv *KVService) BatchPut(request *kvs.BatchPutRequest, response *kvs.BatchPutResponse) error {
-	numKeys := len(request.Keys)
+func (kv *KVService) BatchOp(request *kvs.BatchOpRequest, response *kvs.BatchOpResponse) error {
+	numOps := len(request.Operations)
+	response.Results = make([]string, numOps)
 
-	atomic.AddUint64(&kv.stats.puts, uint64(numKeys))
+	for i, op := range request.Operations {
+		if op.OpType == "GET" {
+			atomic.AddUint64(&kv.stats.gets, 1)
+			
+			// Check cache first
+			if value, ok := kv.cache.Load(op.Key); ok {
+				atomic.AddInt64(&kv.cacheHits, 1)
+				response.Results[i] = value.(string)
+				continue
+			}
 
-	for i, key := range request.Keys {
-		value := request.Values[i]
+			atomic.AddInt64(&kv.cacheMiss, 1)
 
-		kv.mp.Store(key, value)
+			if value, found := kv.mp.Load(op.Key); found {
+				response.Results[i] = value.(string)
 
-		if _, exists := kv.cache.Load(key); exists {
-			kv.cache.Store(key, value)
-		} else if atomic.LoadInt64(&kv.cacheSize) < kv.maxCache {
-			kv.cache.Store(key, value)
-			atomic.AddInt64(&kv.cacheSize, 1)
+				if atomic.LoadInt64(&kv.cacheSize) < kv.maxCache {
+					kv.cache.Store(op.Key, value.(string))
+					atomic.AddInt64(&kv.cacheSize, 1)
+				}
+			} else {
+				response.Results[i] = ""
+			}
+		} else if op.OpType == "PUT" {
+			atomic.AddUint64(&kv.stats.puts, 1)
+
+			kv.mp.Store(op.Key, op.Value)
+
+			if _, exists := kv.cache.Load(op.Key); exists {
+				kv.cache.Store(op.Key, op.Value)
+			} else if atomic.LoadInt64(&kv.cacheSize) < kv.maxCache {
+				kv.cache.Store(op.Key, op.Value)
+				atomic.AddInt64(&kv.cacheSize, 1)
+			}
+			
+			response.Results[i] = ""
 		}
 	}
 	return nil
