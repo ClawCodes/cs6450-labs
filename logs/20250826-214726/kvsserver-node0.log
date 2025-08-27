@@ -1,0 +1,166 @@
+Starting KVS server on :8080
+get/s 0.00
+put/s 0.00
+ops/s 0.00
+Cache: 0/200000 (0.0% full), Hit rate: 0.0%
+
+get/s 0.00
+put/s 0.00
+ops/s 0.00
+Cache: 0/200000 (0.0% full), Hit rate: 0.0%
+
+get/s 0.00
+put/s 0.00
+ops/s 0.00
+Cache: 0/200000 (0.0% full), Hit rate: 0.0%
+
+get/s 0.00
+put/s 0.00
+ops/s 0.00
+Cache: 0/200000 (0.0% full), Hit rate: 0.0%
+
+get/s 3207589.14
+put/s 169006.99
+ops/s 3376596.13
+Cache: 58792/200000 (29.4% full), Hit rate: 65.2%
+
+get/s 8050367.15
+put/s 423290.78
+ops/s 8473657.94
+Cache: 153992/200000 (77.0% full), Hit rate: 74.0%
+
+get/s 8214995.17
+put/s 432148.94
+ops/s 8647144.11
+Cache: 200000/200000 (100.0% full), Hit rate: 77.7%
+
+get/s 8228698.07
+put/s 433066.76
+ops/s 8661764.83
+Cache: 200000/200000 (100.0% full), Hit rate: 79.4%
+
+get/s 7831667.08
+put/s 412513.29
+ops/s 8244180.38
+Cache: 200000/200000 (100.0% full), Hit rate: 80.3%
+
+get/s 7837297.65
+put/s 412526.95
+ops/s 8249824.60
+Cache: 200000/200000 (100.0% full), Hit rate: 80.9%
+
+get/s 7629704.58
+put/s 400743.87
+ops/s 8030448.46
+Cache: 200000/200000 (100.0% full), Hit rate: 81.3%
+
+get/s 7717556.80
+put/s 406476.26
+ops/s 8124033.06
+Cache: 200000/200000 (100.0% full), Hit rate: 81.6%
+
+get/s 7675401.44
+put/s 404552.06
+ops/s 8079953.50
+Cache: 200000/200000 (100.0% full), Hit rate: 81.8%
+
+get/s 7839480.67
+put/s 413194.28
+ops/s 8252674.96
+Cache: 200000/200000 (100.0% full), Hit rate: 82.0%
+
+get/s 7530656.30
+put/s 397387.23
+ops/s 7928043.53
+Cache: 200000/200000 (100.0% full), Hit rate: 82.1%
+
+get/s 7288561.81
+put/s 383907.56
+ops/s 7672469.37
+Cache: 200000/200000 (100.0% full), Hit rate: 82.2%
+
+get/s 7732860.40
+put/s 406967.12
+ops/s 8139827.52
+Cache: 200000/200000 (100.0% full), Hit rate: 82.3%
+
+get/s 7411127.76
+put/s 389406.57
+ops/s 7800534.33
+Cache: 200000/200000 (100.0% full), Hit rate: 82.4%
+
+get/s 7151720.38
+put/s 376678.92
+ops/s 7528399.30
+Cache: 200000/200000 (100.0% full), Hit rate: 82.5%
+
+get/s 7676172.26
+put/s 403774.92
+ops/s 8079947.18
+Cache: 200000/200000 (100.0% full), Hit rate: 82.6%
+
+get/s 7522612.22
+put/s 396055.46
+ops/s 7918667.68
+Cache: 200000/200000 (100.0% full), Hit rate: 82.6%
+
+get/s 7092094.94
+put/s 373293.68
+ops/s 7465388.63
+Cache: 200000/200000 (100.0% full), Hit rate: 82.7%
+
+get/s 7189423.10
+put/s 378553.75
+ops/s 7567976.85
+Cache: 200000/200000 (100.0% full), Hit rate: 82.7%
+
+get/s 7139986.76
+put/s 375827.15
+ops/s 7515813.91
+Cache: 200000/200000 (100.0% full), Hit rate: 82.7%
+
+get/s 7385817.36
+put/s 388881.58
+ops/s 7774698.94
+Cache: 200000/200000 (100.0% full), Hit rate: 82.8%
+
+get/s 7339115.18
+put/s 385543.47
+ops/s 7724658.65
+Cache: 200000/200000 (100.0% full), Hit rate: 82.8%
+
+get/s 7327002.99
+put/s 384698.62
+ops/s 7711701.61
+Cache: 200000/200000 (100.0% full), Hit rate: 82.8%
+
+get/s 7231483.07
+put/s 380345.62
+ops/s 7611828.69
+Cache: 200000/200000 (100.0% full), Hit rate: 82.9%
+
+get/s 7176553.60
+put/s 377520.55
+ops/s 7554074.15
+Cache: 200000/200000 (100.0% full), Hit rate: 82.9%
+
+get/s 7179613.22
+put/s 378171.73
+ops/s 7557784.95
+Cache: 200000/200000 (100.0% full), Hit rate: 82.9%
+
+get/s 7173607.93
+put/s 378023.78
+ops/s 7551631.72
+Cache: 200000/200000 (100.0% full), Hit rate: 82.9%
+
+get/s 7490140.93
+put/s 394468.91
+ops/s 7884609.84
+Cache: 200000/200000 (100.0% full), Hit rate: 83.0%
+
+get/s 7077122.48
+put/s 372484.13
+ops/s 7449606.61
+Cache: 200000/200000 (100.0% full), Hit rate: 83.0%
+
