@@ -15,3 +15,18 @@ type GetRequest struct {
 type GetResponse struct {
 	Value string
 }
+
+
+type Operation struct {
+	OpType string // "GET" or "PUT"
+	Key    string
+	Value  string // Empty for GET operations
+}
+
+type BatchOpRequest struct {
+	Operations []Operation
+}
+
+type BatchOpResponse struct {
+	Results []string // Values for GET operations, empty for PUT
+}

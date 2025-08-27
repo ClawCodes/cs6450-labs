@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/rpc"
 	"strings"
@@ -50,8 +51,23 @@ func (client *Client) Put(key string, value string) {
 	}
 }
 
-func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-	client := Dial(addr)
+func (client *Client) BatchOp(operations []kvs.Operation) []string {
+	request := kvs.BatchOpRequest{Operations: operations}
+	response := kvs.BatchOpResponse{}
+	err := client.rpcClient.Call("KVService.BatchOp", &request, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return response.Results
+}
+func serverFromKey(key *string, servers *[]*Client) Client {
+	h := fnv.New32a()
+	h.Write([]byte(*key))
+	idx := int(h.Sum32()) % len(*servers)
+	return *(*servers)[idx]
+}
+func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
+	//client := Dial(addr)
 
 	value := strings.Repeat("x", 128)
 	const batchSize = 1024
@@ -59,16 +75,45 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 	opsCompleted := uint64(0)
 
 	for !done.Load() {
+		// Collect operations in order to preserve linearizability
+		serverOperations := make(map[Client][]kvs.Operation)
+		//operations := make([]kvs.Operation, 0, batchSize)
+
 		for j := 0; j < batchSize; j++ {
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
+			server := serverFromKey(&key, &servers)
 			if op.IsRead {
-				client.Get(key)
+				if _, ok := serverOperations[server]; !ok {
+					//server has no operations mapped to it yet
+					serverOperations[server] = make([]kvs.Operation, 0, batchSize)
+				}
+				serverOperations[server] = append(serverOperations[server], kvs.Operation{
+					OpType: "GET",
+					Key:    key,
+					Value:  "",
+				})
+				
 			} else {
-				client.Put(key, value)
+				if _, ok := serverOperations[server]; !ok {
+					//server has no operations mapped to it yet
+					serverOperations[server] = make([]kvs.Operation, 0, batchSize)
+				}
+				serverOperations[server] = append(serverOperations[server], kvs.Operation{
+					OpType: "PUT",
+					Key:    key,
+					Value:  value,
+				})
+				
 			}
-			opsCompleted++
 		}
+
+		// Execute batch operation preserving order
+		//client.BatchOp(operations)
+		for server, operations := range serverOperations {
+			server.BatchOp(operations)
+		}
+		opsCompleted += uint64(batchSize)
 	}
 
 	fmt.Printf("Client %d finished operations.\n", id)
@@ -86,13 +131,19 @@ func (h *HostList) Set(value string) error {
 	*h = strings.Split(value, ",")
 	return nil
 }
-
+func dialHosts(servers HostList) []*Client {
+	var clients []*Client
+	for _, addr := range servers {
+		clients = append(clients, Dial(addr))
+	}
+	return clients
+}
 func main() {
 	hosts := HostList{}
 
 	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
 	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
-	workload := flag.String("workload", "YCSB-A", "Workload type (YCSB-A, YCSB-B, YCSB-C)")		// Grading is using "YCSB-A", not "YCSB-B"
+	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
 	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
 	flag.Parse()
 
@@ -113,26 +164,19 @@ func main() {
 	done := atomic.Bool{}
 	resultsCh := make(chan uint64)
 
-	// host := hosts[0]
-	// clientId := 0
-	// go func(clientId int) {
-	// 	workload := kvs.NewWorkload(*workload, *theta)
-	// 	runClient(clientId, host, &done, workload, resultsCh)
-	// }(clientId)
-	numClients := 256
+	//host := hosts[0]
+	numClients := 128
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
-			host := hosts[clientId % len(hosts)]
-
+			connections := dialHosts(hosts)
 			workload := kvs.NewWorkload(*workload, *theta)
-			runClient(clientId, host, &done, workload, resultsCh)
+			runClient(clientId, connections, &done, workload, resultsCh)
 		}(i)
 	}
 
 	time.Sleep(time.Duration(*secs) * time.Second)
 	done.Store(true)
 
-	// opsCompleted := <-resultsCh
 	opsCompleted := uint64(0)
 	for i := 0; i < numClients; i++ {
 		opsCompleted += <-resultsCh
