@@ -83,22 +83,18 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
 			server := serverFromKey(&key, &servers)
+
+			if _, ok := serverOperations[server]; !ok { //if server has no operations mapped to it yet
+				serverOperations[server] = make([]kvs.Operation, 0, batchSize)
+			}
+
 			if op.IsRead {
-				if _, ok := serverOperations[server]; !ok {
-					//server has no operations mapped to it yet
-					serverOperations[server] = make([]kvs.Operation, 0, batchSize)
-				}
 				serverOperations[server] = append(serverOperations[server], kvs.Operation{
 					OpType: "GET",
 					Key:    key,
 					Value:  "",
 				})
-
 			} else {
-				if _, ok := serverOperations[server]; !ok {
-					//server has no operations mapped to it yet
-					serverOperations[server] = make([]kvs.Operation, 0, batchSize)
-				}
 				serverOperations[server] = append(serverOperations[server], kvs.Operation{
 					OpType: "PUT",
 					Key:    key,
@@ -108,8 +104,6 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 			}
 		}
 
-		// Execute batch operation preserving order
-		//client.BatchOp(operations)
 		for server, operations := range serverOperations {
 			server.BatchOp(operations)
 		}
