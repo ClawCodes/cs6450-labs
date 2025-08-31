@@ -68,7 +68,7 @@ func serverFromKey(key *string, servers *[]*Client) Client {
 }
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	value := strings.Repeat("x", 128)
-	const batchSize = 1024
+	const batchSize = 2048
 
 	opsCompleted := uint64(0)
 
@@ -80,7 +80,8 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 		for j := 0; j < batchSize; j++ {
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
-			server := serverFromKey(&key, &servers)
+			// server := serverFromKey(&key, &servers)
+			server := servers[id%len(servers)]
 
 			if _, ok := serverOperations[server]; !ok { //if server has no operations mapped to it yet
 				serverOperations[server] = make([]kvs.Operation, 0, batchSize)
@@ -157,12 +158,10 @@ func main() {
 	done := atomic.Bool{}
 	resultsCh := make(chan uint64)
 
-	//host := hosts[0]
 	connections := dialHosts(hosts)
 	numClients := 128
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
-			// connections := dialHosts(hosts)
 			workload := kvs.NewWorkload(*workload, *theta)
 			runClient(clientId, connections, &done, workload, resultsCh)
 		}(i)
