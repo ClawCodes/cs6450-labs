@@ -67,8 +67,6 @@ func serverFromKey(key *string, servers *[]*Client) Client {
 	return *(*servers)[idx]
 }
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-	//client := Dial(addr)
-
 	value := strings.Repeat("x", 128)
 	const batchSize = 1024
 
@@ -100,7 +98,6 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 					Key:    key,
 					Value:  value,
 				})
-
 			}
 		}
 
@@ -125,6 +122,7 @@ func (h *HostList) Set(value string) error {
 	*h = strings.Split(value, ",")
 	return nil
 }
+
 func dialHosts(servers HostList) []*Client {
 	var clients []*Client
 	for _, addr := range servers {
@@ -132,6 +130,7 @@ func dialHosts(servers HostList) []*Client {
 	}
 	return clients
 }
+
 func main() {
 	hosts := HostList{}
 
