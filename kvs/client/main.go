@@ -158,10 +158,11 @@ func main() {
 	resultsCh := make(chan uint64)
 
 	//host := hosts[0]
+	connections := dialHosts(hosts)
 	numClients := 128
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
-			connections := dialHosts(hosts)
+			// connections := dialHosts(hosts)
 			workload := kvs.NewWorkload(*workload, *theta)
 			runClient(clientId, connections, &done, workload, resultsCh)
 		}(i)
