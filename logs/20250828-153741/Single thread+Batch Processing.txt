@@ -1,6 +1,0 @@
-batchSize = 1024
-
-node0 median 215064 op/s
-node1 median 234218 op/s
-
-total 449282 op/s

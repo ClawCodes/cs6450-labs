@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/rpc"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -61,17 +61,17 @@ func (client *Client) BatchOp(operations []kvs.Operation) []string {
 	return response.Results
 }
 func serverFromKey(key *string, servers []*Client) *Client {
-	// h := fnv.New32a()
-	// h.Write([]byte(*key))
-	// idx := int(h.Sum32()) % len(*servers)
-	// return *(*servers)[idx]
-	keyInt, _ := strconv.ParseUint(*key, 10, 64)
-	idx := int(keyInt) % len(servers)
+	h := fnv.New32a()
+	h.Write([]byte(*key))
+	idx := int(h.Sum32()) % len(servers)
 	return servers[idx]
+	// keyInt, _ := strconv.ParseUint(*key, 10, 64)
+	// idx := int(keyInt) % len(servers)
+	// return servers[idx]
 }
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	value := strings.Repeat("x", 128)
-	const batchSize = 2048
+	const batchSize = 4096
 
 	opsCompleted := uint64(0)
 
@@ -83,21 +83,21 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 		for j := 0; j < batchSize; j++ {
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
-			// server := serverFromKey(&key, &servers)
-			server := servers[id%len(servers)]
+			server := serverFromKey(&key, servers)
+			// server := servers[id%len(servers)]
 
-			if _, ok := serverOperations[server]; !ok { //if server has no operations mapped to it yet
-				serverOperations[server] = make([]kvs.Operation, 0, batchSize)
+			if _, ok := serverOperations[*server]; !ok { //if server has no operations mapped to it yet
+				serverOperations[*server] = make([]kvs.Operation, 0, batchSize)
 			}
 
 			if op.IsRead {
-				serverOperations[server] = append(serverOperations[server], kvs.Operation{
+				serverOperations[*server] = append(serverOperations[*server], kvs.Operation{
 					OpType: "GET",
 					Key:    key,
 					Value:  "",
 				})
 			} else {
-				serverOperations[server] = append(serverOperations[server], kvs.Operation{
+				serverOperations[*server] = append(serverOperations[*server], kvs.Operation{
 					OpType: "PUT",
 					Key:    key,
 					Value:  value,
