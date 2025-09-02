@@ -60,18 +60,17 @@ func (client *Client) BatchOp(operations []kvs.Operation) []string {
 	}
 	return response.Results
 }
+
 func serverFromKey(key *string, servers []*Client) *Client {
 	h := fnv.New32a()
 	h.Write([]byte(*key))
 	idx := int(h.Sum32()) % len(servers)
 	return servers[idx]
-	// keyInt, _ := strconv.ParseUint(*key, 10, 64)
-	// idx := int(keyInt) % len(servers)
-	// return servers[idx]
 }
+
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	value := strings.Repeat("x", 128)
-	const batchSize = 4096
+	const batchSize = 32768
 
 	opsCompleted := uint64(0)
 
