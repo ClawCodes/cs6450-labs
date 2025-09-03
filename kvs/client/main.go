@@ -77,13 +77,11 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 	for !done.Load() {
 		// Collect operations in order to preserve linearizability
 		serverOperations := make(map[Client][]kvs.Operation)
-		//operations := make([]kvs.Operation, 0, batchSize)
 
 		for j := 0; j < batchSize; j++ {
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
 			server := serverFromKey(&key, servers)
-			// server := servers[id%len(servers)]
 
 			if _, ok := serverOperations[*server]; !ok { //if server has no operations mapped to it yet
 				serverOperations[*server] = make([]kvs.Operation, 0, batchSize)
