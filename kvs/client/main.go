@@ -162,7 +162,7 @@ func main() {
 
 	connections := dialHosts(hosts)
 	// numClients := *numClientsFlag
-	numClients := 512
+	numClients := 256
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
 			workload := kvs.NewWorkload(*workload, *theta)

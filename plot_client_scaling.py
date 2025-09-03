@@ -23,10 +23,9 @@ def plot_client_scaling(csv_file='client_scaling_results.csv'):
         sys.exit(1)
     
     # Create the plot
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(10, 6))
     
     # Plot throughput vs number of concurrent goroutines
-    plt.subplot(2, 1, 1)
     plt.plot(df['numClients'], df['throughput_ops_per_sec'], 'bo-', linewidth=2, markersize=8)
     plt.xlabel('Number of Concurrent Goroutines')
     plt.ylabel('Throughput (ops/s)')
@@ -38,22 +37,6 @@ def plot_client_scaling(csv_file='client_scaling_results.csv'):
     for i, row in df.iterrows():
         plt.annotate(f'{row["throughput_ops_per_sec"]:.0f}', 
                     (row['numClients'], row['throughput_ops_per_sec']),
-                    textcoords="offset points", xytext=(0,10), ha='center')
-    
-    # Plot efficiency (throughput per goroutine)
-    plt.subplot(2, 1, 2)
-    df['efficiency'] = df['throughput_ops_per_sec'] / df['numClients']
-    plt.plot(df['numClients'], df['efficiency'], 'ro-', linewidth=2, markersize=8)
-    plt.xlabel('Number of Concurrent Goroutines')
-    plt.ylabel('Efficiency (ops/s per goroutine)')
-    plt.title('Goroutine Efficiency: Throughput per Goroutine vs Number of Concurrent Goroutines')
-    plt.grid(True, alpha=0.3)
-    plt.xscale('log', base=2)
-    
-    # Add value labels on points
-    for i, row in df.iterrows():
-        plt.annotate(f'{row["efficiency"]:.0f}', 
-                    (row['numClients'], row['efficiency']),
                     textcoords="offset points", xytext=(0,10), ha='center')
     
     plt.tight_layout()
@@ -68,7 +51,6 @@ def plot_client_scaling(csv_file='client_scaling_results.csv'):
     print(df.to_string(index=False))
     
     print(f"\nPeak throughput: {df['throughput_ops_per_sec'].max():.2f} ops/s with {df.loc[df['throughput_ops_per_sec'].idxmax(), 'numClients']} goroutines")
-    print(f"Best efficiency: {df['efficiency'].max():.2f} ops/s per goroutine with {df.loc[df['efficiency'].idxmax(), 'numClients']} goroutines")
     
     # Show the plot
     plt.show()
