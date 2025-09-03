@@ -12,27 +12,55 @@ TEST_DURATION=30
 WORKLOAD="YCSB-B"
 THETA=0.99
 
+# Function to get cluster size (same as run-cluster.sh)
+function cluster_size() {
+    geni-get -a | \
+        grep -Po '<interface_ref client_id=\\".*?\"' | \
+        sed 's/<interface_ref client_ide=\\"\(.*\)\\"/\1/' | \
+        sort | \
+        uniq | \
+        wc -l
+}
+
 # Function to display usage
 usage() {
-    echo "Usage: $0 [max_clients] [server_count] [test_duration] [workload]"
+    echo "Usage: $0 [max_clients] [server_count] [client_count] [test_duration] [workload]"
     echo "  max_clients:    Maximum number of clients to test (will test 1,2,4,8... up to this) [default: 128]"
-    echo "  server_count:   Number of server nodes to use [default: 2]"
+    echo "  server_count:   Number of server nodes to use [default: half of available nodes]"
+    echo "  client_count:   Number of client nodes to use [default: remaining nodes]"
     echo "  test_duration:  Duration in seconds for each test [default: 30]"
     echo "  workload:       YCSB workload type [default: YCSB-B]"
     echo ""
     echo "Examples:"
-    echo "  $0              # Test up to 128 clients, 2 servers, 30s duration, YCSB-B"
-    echo "  $0 64           # Test up to 64 clients"
-    echo "  $0 32 4         # Test up to 32 clients, 4 servers"
-    echo "  $0 16 2 60      # Test up to 16 clients, 2 servers, 60s duration"
+    echo "  $0              # Auto-split: 4 nodes -> 2 servers + 2 clients, 8 nodes -> 4 servers + 4 clients"
+    echo "  $0 64           # Test up to 64 clients, auto-split nodes"
+    echo "  $0 32 2 2       # Test up to 32 clients, 2 servers, 2 client nodes"
+    echo "  $0 16 3 1 60    # Test up to 16 clients, 3 servers, 1 client node, 60s duration"
     exit 1
 }
 
-# Parse arguments
+# Get available node count first to determine defaults
+AVAILABLE_COUNT=$(cluster_size)
+
+# Parse arguments with defaults based on available nodes
 MAX_CLIENTS=${1:-128}
-SERVER_COUNT=${2:-2}
-TEST_DURATION=${3:-30}
-WORKLOAD=${4:-"YCSB-B"}
+
+if [ "$#" -ge 2 ]; then
+    SERVER_COUNT="$2"
+else
+    # Auto-split: half servers, half clients
+    SERVER_COUNT=$((AVAILABLE_COUNT / 2))
+fi
+
+if [ "$#" -ge 3 ]; then
+    CLIENT_COUNT="$3"
+else
+    # Use remaining nodes as clients
+    CLIENT_COUNT=$((AVAILABLE_COUNT - SERVER_COUNT))
+fi
+
+TEST_DURATION=${4:-30}
+WORKLOAD=${5:-"YCSB-B"}
 
 # Validate arguments
 if ! [[ "$MAX_CLIENTS" =~ ^[0-9]+$ ]] || [ "$MAX_CLIENTS" -eq 0 ]; then
@@ -45,6 +73,19 @@ if ! [[ "$SERVER_COUNT" =~ ^[0-9]+$ ]] || [ "$SERVER_COUNT" -eq 0 ]; then
     exit 1
 fi
 
+if ! [[ "$CLIENT_COUNT" =~ ^[0-9]+$ ]] || [ "$CLIENT_COUNT" -eq 0 ]; then
+    echo "Error: client_count must be a positive integer"
+    exit 1
+fi
+
+# Check that we have enough available nodes
+TOTAL_NEEDED=$((SERVER_COUNT + CLIENT_COUNT))
+if [ "$TOTAL_NEEDED" -gt "$AVAILABLE_COUNT" ]; then
+    echo "Error: Requested $TOTAL_NEEDED nodes (servers: $SERVER_COUNT, clients: $CLIENT_COUNT)"
+    echo "       but only $AVAILABLE_COUNT nodes are available"
+    exit 1
+fi
+
 # Generate client counts: 1, 2, 4, 8, 16... up to MAX_CLIENTS
 CLIENT_COUNTS=()
 current=1
@@ -54,11 +95,11 @@ while [ $current -le $MAX_CLIENTS ]; do
 done
 
 echo "=== Client Scaling Benchmark ==="
-echo "Max clients: $MAX_CLIENTS"
+echo "Available nodes: $AVAILABLE_COUNT"
 echo "Server count: $SERVER_COUNT"
+echo "Client node count: $CLIENT_COUNT"
 echo "Test duration: ${TEST_DURATION}s"
 echo "Workload: $WORKLOAD"
-echo "Client counts to test: ${CLIENT_COUNTS[*]}"
 echo "Results will be saved to: $RESULTS_FILE"
 echo
 
@@ -83,28 +124,35 @@ extract_throughput() {
 
 # Test each client count
 for num_clients in "${CLIENT_COUNTS[@]}"; do
-    echo "=== Testing with $num_clients clients ==="
+    echo "=== Testing with $num_clients clients across $CLIENT_COUNT client nodes ==="
     
     # Use run-cluster.sh with custom client args
     CLIENT_ARGS="-secs $TEST_DURATION -workload $WORKLOAD -theta $THETA -numClients $num_clients"
     
-    echo "Running: ./run-cluster.sh $SERVER_COUNT 1 \"\" \"$CLIENT_ARGS\""
+    echo "Running: ./run-cluster.sh $SERVER_COUNT $CLIENT_COUNT \"\" \"$CLIENT_ARGS\""
     
-    # Run the cluster (1 client node, but with multiple concurrent clients)
-    ./run-cluster.sh "$SERVER_COUNT" 1 "" "$CLIENT_ARGS"
+    # Run the cluster with specified server and client node counts
+    ./run-cluster.sh "$SERVER_COUNT" "$CLIENT_COUNT" "" "$CLIENT_ARGS"
     
-    # Extract throughput from the latest client log
+    # Extract throughput from all client logs and sum them up
     LOG_DIR=$(readlink "$ROOT/logs/latest")
-    CLIENT_LOG=$(find "$LOG_DIR" -name "kvsclient-*.log" | head -1)
+    TOTAL_THROUGHPUT=0
+    CLIENT_LOGS=($(find "$LOG_DIR" -name "kvsclient-*.log"))
     
-    if [ -n "$CLIENT_LOG" ] && [ -f "$CLIENT_LOG" ]; then
-        THROUGHPUT=$(extract_throughput "$CLIENT_LOG")
-        echo "Throughput with $num_clients clients: $THROUGHPUT ops/s"
+    if [ ${#CLIENT_LOGS[@]} -gt 0 ]; then
+        for CLIENT_LOG in "${CLIENT_LOGS[@]}"; do
+            THROUGHPUT=$(extract_throughput "$CLIENT_LOG")
+            if [[ "$THROUGHPUT" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                TOTAL_THROUGHPUT=$(echo "$TOTAL_THROUGHPUT + $THROUGHPUT" | bc -l)
+            fi
+        done
+        
+        echo "Total throughput with $num_clients clients: $TOTAL_THROUGHPUT ops/s"
         
         # Save result to CSV
-        echo "$num_clients,$THROUGHPUT" >> "$RESULTS_FILE"
+        echo "$num_clients,$TOTAL_THROUGHPUT" >> "$RESULTS_FILE"
     else
-        echo "Warning: Could not find client log file"
+        echo "Warning: Could not find any client log files"
         echo "$num_clients,0" >> "$RESULTS_FILE"
     fi
     

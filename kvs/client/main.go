@@ -70,7 +70,7 @@ func serverFromKey(key *string, servers []*Client) *Client {
 
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	value := strings.Repeat("x", 128)
-	const batchSize = 32768
+	const batchSize = 1
 
 	opsCompleted := uint64(0)
 
@@ -163,7 +163,8 @@ func main() {
 	resultsCh := make(chan uint64)
 
 	connections := dialHosts(hosts)
-	numClients := *numClientsFlag
+	// numClients := *numClientsFlag
+	numClients := 512
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
 			workload := kvs.NewWorkload(*workload, *theta)
