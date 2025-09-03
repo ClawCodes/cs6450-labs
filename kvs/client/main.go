@@ -113,6 +113,50 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 	resultsCh <- opsCompleted
 }
 
+func runClientWithBatchSize(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, batchSize int, resultsCh chan<- uint64) {
+	value := strings.Repeat("x", 128)
+
+	opsCompleted := uint64(0)
+
+	for !done.Load() {
+		// Collect operations in order to preserve linearizability
+		serverOperations := make(map[Client][]kvs.Operation)
+
+		for j := 0; j < batchSize; j++ {
+			op := workload.Next()
+			key := fmt.Sprintf("%d", op.Key)
+			server := serverFromKey(&key, servers)
+
+			if _, ok := serverOperations[*server]; !ok {
+				serverOperations[*server] = make([]kvs.Operation, 0, batchSize)
+			}
+
+			if op.IsRead {
+				serverOperations[*server] = append(serverOperations[*server], kvs.Operation{
+					OpType: "GET",
+					Key:    key,
+					Value:  "",
+				})
+			} else {
+				serverOperations[*server] = append(serverOperations[*server], kvs.Operation{
+					OpType: "PUT",
+					Key:    key,
+					Value:  value,
+				})
+			}
+		}
+
+		for server, operations := range serverOperations {
+			server.BatchOp(operations)
+		}
+		opsCompleted += uint64(batchSize)
+	}
+
+	fmt.Printf("Client %d finished operations.\n", id)
+
+	resultsCh <- opsCompleted
+}
+
 type HostList []string
 
 func (h *HostList) String() string {
@@ -140,6 +184,7 @@ func main() {
 	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
 	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
 	numClientsFlag := flag.Int("numClients", 128, "Number of concurrent clients to run")
+	batchSizeFlag := flag.Int("batchSize", 1, "Batch size for operations")
 	flag.Parse()
 
 	if len(hosts) == 0 {
@@ -151,8 +196,9 @@ func main() {
 			"theta %.2f\n"+
 			"workload %s\n"+
 			"secs %d\n"+
-			"numClients %d\n",
-		hosts, *theta, *workload, *secs, *numClientsFlag,
+			"numClients %d\n"+
+			"batchSize %d\n",
+		hosts, *theta, *workload, *secs, *numClientsFlag, *batchSizeFlag,
 	)
 
 	start := time.Now()
@@ -161,12 +207,12 @@ func main() {
 	resultsCh := make(chan uint64)
 
 	connections := dialHosts(hosts)
-	// numClients := *numClientsFlag
+	// numClients := *numClientsFlag	// If want to test the effect of numClients, uncomment this and comment out the line below
 	numClients := 256
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
 			workload := kvs.NewWorkload(*workload, *theta)
-			runClient(clientId, connections, &done, workload, resultsCh)
+			runClientWithBatchSize(clientId, connections, &done, workload, *batchSizeFlag, resultsCh)
 		}(i)
 	}
 
