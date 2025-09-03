@@ -141,6 +141,7 @@ func main() {
 	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
 	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
 	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
+	numClientsFlag := flag.Int("numClients", 128, "Number of concurrent clients to run")
 	flag.Parse()
 
 	if len(hosts) == 0 {
@@ -151,8 +152,9 @@ func main() {
 		"hosts %v\n"+
 			"theta %.2f\n"+
 			"workload %s\n"+
-			"secs %d\n",
-		hosts, *theta, *workload, *secs,
+			"secs %d\n"+
+			"numClients %d\n",
+		hosts, *theta, *workload, *secs, *numClientsFlag,
 	)
 
 	start := time.Now()
@@ -161,7 +163,7 @@ func main() {
 	resultsCh := make(chan uint64)
 
 	connections := dialHosts(hosts)
-	numClients := 128
+	numClients := *numClientsFlag
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
 			workload := kvs.NewWorkload(*workload, *theta)
