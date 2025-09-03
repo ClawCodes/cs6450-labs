@@ -25,12 +25,12 @@ def plot_client_scaling(csv_file='client_scaling_results.csv'):
     # Create the plot
     plt.figure(figsize=(12, 8))
     
-    # Plot throughput vs number of clients
+    # Plot throughput vs number of concurrent goroutines
     plt.subplot(2, 1, 1)
     plt.plot(df['numClients'], df['throughput_ops_per_sec'], 'bo-', linewidth=2, markersize=8)
-    plt.xlabel('Number of Clients')
+    plt.xlabel('Number of Concurrent Goroutines')
     plt.ylabel('Throughput (ops/s)')
-    plt.title('KVS Client Scaling: Throughput vs Number of Clients')
+    plt.title('KVS Concurrency Scaling: Throughput vs Number of Concurrent Goroutines')
     plt.grid(True, alpha=0.3)
     plt.xscale('log', base=2)  # Log scale with base 2 since we're doubling
     
@@ -40,13 +40,13 @@ def plot_client_scaling(csv_file='client_scaling_results.csv'):
                     (row['numClients'], row['throughput_ops_per_sec']),
                     textcoords="offset points", xytext=(0,10), ha='center')
     
-    # Plot efficiency (throughput per client)
+    # Plot efficiency (throughput per goroutine)
     plt.subplot(2, 1, 2)
     df['efficiency'] = df['throughput_ops_per_sec'] / df['numClients']
     plt.plot(df['numClients'], df['efficiency'], 'ro-', linewidth=2, markersize=8)
-    plt.xlabel('Number of Clients')
-    plt.ylabel('Efficiency (ops/s per client)')
-    plt.title('Client Efficiency: Throughput per Client vs Number of Clients')
+    plt.xlabel('Number of Concurrent Goroutines')
+    plt.ylabel('Efficiency (ops/s per goroutine)')
+    plt.title('Goroutine Efficiency: Throughput per Goroutine vs Number of Concurrent Goroutines')
     plt.grid(True, alpha=0.3)
     plt.xscale('log', base=2)
     
@@ -67,8 +67,8 @@ def plot_client_scaling(csv_file='client_scaling_results.csv'):
     print("\n=== Results Summary ===")
     print(df.to_string(index=False))
     
-    print(f"\nPeak throughput: {df['throughput_ops_per_sec'].max():.2f} ops/s with {df.loc[df['throughput_ops_per_sec'].idxmax(), 'numClients']} clients")
-    print(f"Best efficiency: {df['efficiency'].max():.2f} ops/s per client with {df.loc[df['efficiency'].idxmax(), 'numClients']} clients")
+    print(f"\nPeak throughput: {df['throughput_ops_per_sec'].max():.2f} ops/s with {df.loc[df['throughput_ops_per_sec'].idxmax(), 'numClients']} goroutines")
+    print(f"Best efficiency: {df['efficiency'].max():.2f} ops/s per goroutine with {df.loc[df['efficiency'].idxmax(), 'numClients']} goroutines")
     
     # Show the plot
     plt.show()
