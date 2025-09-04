@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"net/rpc"
 	"strings"
 	"sync"
@@ -15,36 +17,77 @@ import (
 
 type Client struct {
 	rpcClient *rpc.Client
-	rpcCache  sync.Map
+	rpcCache  sync.Map // map[string]*clientCacheLine
+	clientID  string   // address:port of this client for receiving invalidations
+	listener  net.Listener
 }
 
 type clientCacheLine struct {
 	Value        string
+	LastAccessed time.Time
 	Invalidation chan struct{}
 }
 
-func Dial(addr string) *Client {
-	rpcClient, err := rpc.DialHTTP("tcp", addr)
+// Invalidate handles cache invalidation requests from the server
+func (client *Client) Invalidate(request *kvs.InvalidationRequest, response *kvs.InvalidationResponse) error {
+	if val, ok := client.rpcCache.Load(request.Key); ok {
+		cacheLine := val.(*clientCacheLine)
+		// Signal invalidation
+		select {
+		case cacheLine.Invalidation <- struct{}{}:
+		default:
+			// Channel already has an invalidation signal
+		}
+		client.rpcCache.Delete(request.Key)
+	}
+	return nil
+}
+
+func NewClient(serverAddr string) *Client {
+	// Start RPC server for receiving invalidations
+	client := &Client{}
+	rpc.Register(client)
+	rpc.HandleHTTP()
+
+	// Listen on any available port
+	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		log.Fatal(err)
 	}
+	client.listener = listener
+	client.clientID = listener.Addr().String()
 
-	return &Client{rpcClient, sync.Map{}}
+	// Start HTTP server for invalidation callbacks
+	go http.Serve(listener, nil)
+
+	// Connect to the KV server
+	rpcClient, err := rpc.DialHTTP("tcp", serverAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	client.rpcClient = rpcClient
+
+	return client
 }
 
 func (client *Client) Get(key string) string {
-	// look in rpcCache first for valid entry
-	if val, exists := client.rpcCache.LoadOrStore(key, make(chan struct{}, 1)); exists {
-		// if key is in cache, check invalidation channel
-		ch := val.(chan struct{})
+	// Look in cache first
+	if val, ok := client.rpcCache.Load(key); ok {
+		cacheLine := val.(*clientCacheLine)
+
+		// Check if there's any invalidation signal
 		select {
-		case <-ch: // an invalidation signal is read
-			// handle invalidation
+		case <-cacheLine.Invalidation:
+			// Cache was invalidated, remove it
+			client.rpcCache.Delete(key)
 		default:
-			// continue with
+			// Cache is still valid, update last accessed time and return value
+			cacheLine.LastAccessed = time.Now()
+			return cacheLine.Value
 		}
 	}
 
+	// Cache miss or invalidated, fetch from server
 	request := kvs.GetRequest{
 		Key: key,
 	}
@@ -54,10 +97,43 @@ func (client *Client) Get(key string) string {
 		log.Fatal(err)
 	}
 
+	// Store in cache
+	cacheLine := &clientCacheLine{
+		Value:        response.Value,
+		LastAccessed: time.Now(),
+		Invalidation: make(chan struct{}, 1),
+	}
+	client.rpcCache.Store(key, cacheLine)
+
+	// Register cache entry with server
+	registerReq := &kvs.RegisterCacheRequest{
+		Key:      key,
+		ClientID: client.clientID,
+	}
+	registerResp := &kvs.RegisterCacheResponse{}
+	err = client.rpcClient.Call("KVService.RegisterCache", registerReq, registerResp)
+	if err != nil {
+		// If registration fails, remove from local cache
+		client.rpcCache.Delete(key)
+		log.Printf("Failed to register cache entry: %v", err)
+	}
+
 	return response.Value
 }
 
 func (client *Client) Put(key string, value string) {
+	// First invalidate any cached entry
+	if val, ok := client.rpcCache.Load(key); ok {
+		cacheLine := val.(*clientCacheLine)
+		// Signal invalidation
+		select {
+		case cacheLine.Invalidation <- struct{}{}:
+		default:
+			// Channel already has an invalidation signal
+		}
+		client.rpcCache.Delete(key)
+	}
+
 	request := kvs.PutRequest{
 		Key:   key,
 		Value: value,
@@ -70,7 +146,8 @@ func (client *Client) Put(key string, value string) {
 }
 
 func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-	client := Dial(addr)
+	client := NewClient(addr)
+	defer client.listener.Close()
 
 	value := strings.Repeat("x", 128)
 	const batchSize = 1024

@@ -27,15 +27,17 @@ func (s *Stats) Sub(prev *Stats) Stats {
 
 type KVService struct {
 	sync.Mutex
-	mp        map[string]string
-	stats     Stats
-	prevStats Stats
-	lastPrint time.Time
+	mp           map[string]string
+	stats        Stats
+	prevStats    Stats
+	lastPrint    time.Time
+	clientCaches map[string]map[string]*rpc.Client // key -> set of clientIDs that have it cached
 }
 
 func NewKVService() *KVService {
 	kvs := &KVService{}
 	kvs.mp = make(map[string]string)
+	kvs.clientCaches = make(map[string]map[string]*rpc.Client)
 	kvs.lastPrint = time.Now()
 	return kvs
 }
@@ -60,6 +62,46 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	kv.stats.puts++
 
 	kv.mp[request.Key] = request.Value
+
+	// Send invalidations to all clients that have this key cached
+	if clients, exists := kv.clientCaches[request.Key]; exists {
+		for clientID, rpcClient := range clients {
+			invalidateReq := &kvs.InvalidationRequest{Key: request.Key}
+			invalidateResp := &kvs.InvalidationResponse{}
+			// Do async RPC call to avoid blocking
+			go func(client *rpc.Client, cid string) {
+				err := client.Call("Client.Invalidate", invalidateReq, invalidateResp)
+				if err != nil {
+					// Client might be dead, remove it from our cache
+					kv.Lock()
+					delete(kv.clientCaches[request.Key], cid)
+					if len(kv.clientCaches[request.Key]) == 0 {
+						delete(kv.clientCaches, request.Key)
+					}
+					kv.Unlock()
+				}
+			}(rpcClient, clientID)
+		}
+	}
+
+	return nil
+}
+
+func (kv *KVService) RegisterCache(request *kvs.RegisterCacheRequest, response *kvs.RegisterCacheResponse) error {
+	kv.Lock()
+	defer kv.Unlock()
+
+	// Create a new RPC client for the registering client if we don't have one
+	if _, exists := kv.clientCaches[request.Key]; !exists {
+		kv.clientCaches[request.Key] = make(map[string]*rpc.Client)
+	}
+
+	// Store the client's RPC connection for future invalidations
+	if client, err := rpc.DialHTTP("tcp", request.ClientID); err == nil {
+		kv.clientCaches[request.Key][request.ClientID] = client
+	} else {
+		return err
+	}
 
 	return nil
 }

@@ -17,3 +17,18 @@ type GetResponse struct {
 	Key   string
 	Value string
 }
+
+type RegisterCacheRequest struct {
+	Key      string
+	ClientID string
+}
+
+type RegisterCacheResponse struct {
+}
+
+type InvalidationRequest struct {
+	Key string
+}
+
+type InvalidationResponse struct {
+}
