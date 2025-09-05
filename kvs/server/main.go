@@ -56,17 +56,21 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 	if value, found := kv.mp[request.Key]; found {
 		response.Value = value
 
-		// Register that client is caching the key
-		clientsMap, loaded := kv.clientCaches.LoadOrStore(request.Key, &sync.Map{})
-		if !loaded {
-			// dial client for futute rpc calls to update cache
-			rpcCache, err := rpc.DialHTTP("tcp", request.ClientAddr)
-			if err != nil {
-				log.Fatal(err)
+		// Get set of clients that have cached the key, or create a new one
+		clientsMap, _ := kv.clientCaches.LoadOrStore(request.Key, &sync.Map{})
+
+		// Check if the requesting client is in the list and add if not
+		if _, found := clientsMap.(*sync.Map).Load(request.ClientAddr); !found {
+			// if not, check if the client has an rcp connection, add one if needed
+			if _, exists := kv.clients[request.ClientAddr]; !exists {
+				rpcCache, err := rpc.DialHTTP("tcp", request.ClientAddr)
+				if err != nil {
+					log.Fatal(err)
+				}
+				kv.clients[request.ClientAddr] = rpcCache
 			}
-			kv.clients[request.ClientAddr] = rpcCache
+			clientsMap.(*sync.Map).Store(request.ClientAddr, struct{}{})
 		}
-		clientsMap.(*sync.Map).Store(request.ClientAddr, struct{}{})
 	}
 
 	return nil
