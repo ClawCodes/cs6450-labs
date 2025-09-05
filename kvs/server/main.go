@@ -28,7 +28,7 @@ func (s *Stats) Sub(prev *Stats) Stats {
 
 type KVService struct {
 	sync.Mutex
-	mp           map[string]string
+	mp           sync.Map
 	stats        Stats
 	prevStats    Stats
 	lastPrint    time.Time
@@ -39,7 +39,6 @@ type KVService struct {
 func NewKVService(clientAddrs []string) *KVService {
 	// init kvs
 	kvs := &KVService{}
-	kvs.mp = make(map[string]string)
 	kvs.clients = make(map[string]*rpc.Client)
 	kvs.lastPrint = time.Now()
 
@@ -48,13 +47,12 @@ func NewKVService(clientAddrs []string) *KVService {
 
 func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
 	kv.Lock()
-	defer kv.Unlock()
-
 	kv.stats.gets++
+	kv.Unlock()
 
 	// If key is in the store, return it and register which client has cached it
-	if value, found := kv.mp[request.Key]; found {
-		response.Value = value
+	if value, found := kv.mp.Load(request.Key); found {
+		response.Value = value.(string)
 
 		// Get set of clients that have cached the key, or create a new one
 		clientsMap, _ := kv.clientCaches.LoadOrStore(request.Key, &sync.Map{})
@@ -78,11 +76,10 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 
 func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
 	kv.Lock()
-	defer kv.Unlock()
-
 	kv.stats.puts++
+	kv.Unlock()
 
-	kv.mp[request.Key] = request.Value
+	kv.mp.Store(request.Key, request.Value)
 
 	// Send updated value to all clients that have cached this key
 	if clientsMap, found := kv.clientCaches.Load(request.Key); found {
