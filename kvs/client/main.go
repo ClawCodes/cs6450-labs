@@ -26,6 +26,10 @@ type Client struct {
 // structure for server to rpc Update() when other clients write to the KV store
 type KVCache struct {
 	sync.Map
+	sync.Mutex
+	hits    int
+	misses  int
+	updates int
 }
 
 type clientCacheLine struct {
@@ -37,6 +41,9 @@ func (cache *KVCache) Update(request *kvs.UpdateRequest, response *kvs.UpdateRes
 	cacheLine := &clientCacheLine{
 		Value: request.Value,
 	}
+	cache.Lock()
+	cache.updates++
+	cache.Unlock()
 	cache.Store(request.Key, cacheLine)
 	return nil
 }
@@ -60,10 +67,16 @@ func NewClient(clientID int, clientAddr string, serverAddrs []string) *Client {
 func (client *Client) Get(key string) string {
 	// Look in cache first
 	if val, ok := client.cache.Load(key); ok {
+		client.cache.Lock()
+		client.cache.hits++
+		client.cache.Unlock()
 		cacheLine := val.(*clientCacheLine)
 		return cacheLine.Value
 	}
 
+	client.cache.Lock()
+	client.cache.misses++
+	client.cache.Unlock()
 	// Cache miss -> fetch from server and register client is caching this key
 	request := kvs.GetRequest{
 		Key:        key,
@@ -125,6 +138,7 @@ func runClient(client *Client, done *atomic.Bool, workload *kvs.Workload, result
 	}
 
 	fmt.Printf("Client %d finished operations.\n", client.ID)
+	fmt.Printf("Cache: %d hits, %d misses, %d updates", client.cache.hits, client.cache.misses, client.cache.updates)
 
 	resultsCh <- opsCompleted
 }
