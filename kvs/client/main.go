@@ -34,7 +34,10 @@ type clientCacheLine struct {
 
 // KV server can request caches to update their values when writes from other clients are received
 func (cache *KVCache) Update(request *kvs.UpdateRequest, response *kvs.UpdateResponse) error {
-	cache.Store(request.Key, request.Value)
+	cacheLine := clientCacheLine{
+		Value: request.Value,
+	}
+	cache.Store(request.Key, cacheLine)
 	return nil
 }
 
