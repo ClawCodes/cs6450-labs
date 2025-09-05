@@ -9,26 +9,18 @@ type PutResponse struct {
 }
 
 type GetRequest struct {
-	Key   string
-	Value string
+	Key        string
+	ClientAddr string
 }
 
 type GetResponse struct {
+	Value string
+}
+
+type UpdateRequest struct {
 	Key   string
 	Value string
 }
 
-type RegisterCacheRequest struct {
-	Key      string
-	ClientID string
-}
-
-type RegisterCacheResponse struct {
-}
-
-type InvalidationRequest struct {
-	Key string
-}
-
-type InvalidationResponse struct {
+type UpdateResponse struct {
 }

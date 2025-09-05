@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,139 +17,92 @@ import (
 )
 
 type Client struct {
-	rpcClient *rpc.Client
-	rpcCache  sync.Map // map[string]*clientCacheLine
-	clientID  string   // address:port of this client for receiving invalidations
-	listener  net.Listener
+	rpcServers []*rpc.Client
+	cache      KVCache
+	Address    string // address of this client for receiving update rpc's
+	ID         int
+}
+
+// structure for server to rpc Update() when other clients write to the KV store
+type KVCache struct {
+	sync.Map
 }
 
 type clientCacheLine struct {
-	Value        string
-	LastAccessed time.Time
-	Invalidation chan struct{}
+	Value string
 }
 
-// Invalidate handles cache invalidation requests from the server
-func (client *Client) Invalidate(request *kvs.InvalidationRequest, response *kvs.InvalidationResponse) error {
-	if val, ok := client.rpcCache.Load(request.Key); ok {
-		cacheLine := val.(*clientCacheLine)
-		// Signal invalidation
-		select {
-		case cacheLine.Invalidation <- struct{}{}:
-		default:
-			// Channel already has an invalidation signal
-		}
-		client.rpcCache.Delete(request.Key)
-	}
+// KV server can request caches to update their values when writes from other clients are received
+func (cache *KVCache) Update(request *kvs.UpdateRequest, response *kvs.UpdateResponse) error {
+	cache.Store(request.Key, request.Value)
 	return nil
 }
 
-func NewClient(serverAddr string) *Client {
-	// Start RPC server for receiving invalidations
+func NewClient(clientID int, clientAddr string, serverAddrs []string) *Client {
+	// Create new client and connect to KV servers
 	client := &Client{}
-	rpc.Register(client)
-	rpc.HandleHTTP()
-
-	// Listen on any available port
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		log.Fatal(err)
+	for _, addr := range serverAddrs {
+		rpcServer, err := rpc.DialHTTP("tcp", addr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		client.rpcServers = append(client.rpcServers, rpcServer)
 	}
-	client.listener = listener
-	client.clientID = listener.Addr().String()
-
-	// Start HTTP server for invalidation callbacks
-	go http.Serve(listener, nil)
-
-	// Connect to the KV server
-	rpcClient, err := rpc.DialHTTP("tcp", serverAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	client.rpcClient = rpcClient
+	client.Address = clientAddr
+	client.ID = clientID
 
 	return client
 }
 
 func (client *Client) Get(key string) string {
 	// Look in cache first
-	if val, ok := client.rpcCache.Load(key); ok {
+	if val, ok := client.cache.Load(key); ok {
 		cacheLine := val.(*clientCacheLine)
-
-		// Check if there's any invalidation signal
-		select {
-		case <-cacheLine.Invalidation:
-			// Cache was invalidated, remove it
-			client.rpcCache.Delete(key)
-		default:
-			// Cache is still valid, update last accessed time and return value
-			cacheLine.LastAccessed = time.Now()
-			return cacheLine.Value
-		}
+		return cacheLine.Value
 	}
 
-	// Cache miss or invalidated, fetch from server
+	// Cache miss -> fetch from server and register client is caching this key
 	request := kvs.GetRequest{
-		Key: key,
+		Key:        key,
+		ClientAddr: client.Address,
 	}
 	response := kvs.GetResponse{}
-	err := client.rpcClient.Call("KVService.Get", &request, &response)
+	err := client.rpcServers[0].Call("KVService.Get", &request, &response)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Store in cache
 	cacheLine := &clientCacheLine{
-		Value:        response.Value,
-		LastAccessed: time.Now(),
-		Invalidation: make(chan struct{}, 1),
+		Value: response.Value,
 	}
-	client.rpcCache.Store(key, cacheLine)
-
-	// Register cache entry with server
-	registerReq := &kvs.RegisterCacheRequest{
-		Key:      key,
-		ClientID: client.clientID,
-	}
-	registerResp := &kvs.RegisterCacheResponse{}
-	err = client.rpcClient.Call("KVService.RegisterCache", registerReq, registerResp)
-	if err != nil {
-		// If registration fails, remove from local cache
-		client.rpcCache.Delete(key)
-		log.Printf("Failed to register cache entry: %v", err)
-	}
+	client.cache.Store(key, cacheLine)
 
 	return response.Value
 }
 
 func (client *Client) Put(key string, value string) {
-	// First invalidate any cached entry
-	if val, ok := client.rpcCache.Load(key); ok {
-		cacheLine := val.(*clientCacheLine)
-		// Signal invalidation
-		select {
-		case cacheLine.Invalidation <- struct{}{}:
-		default:
-			// Channel already has an invalidation signal
+	// Update cached entry if it exists
+	if _, ok := client.cache.Load(key); ok {
+		cacheLine := &clientCacheLine{
+			Value: value,
 		}
-		client.rpcCache.Delete(key)
+		client.cache.Store(key, cacheLine)
 	}
 
+	// Always Put to the server
 	request := kvs.PutRequest{
 		Key:   key,
 		Value: value,
 	}
 	response := kvs.PutResponse{}
-	err := client.rpcClient.Call("KVService.Put", &request, &response)
+	err := client.rpcServers[0].Call("KVService.Put", &request, &response)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-	client := NewClient(addr)
-	defer client.listener.Close()
-
+func runClient(client *Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	value := strings.Repeat("x", 128)
 	const batchSize = 1024
 
@@ -167,7 +121,7 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 		}
 	}
 
-	fmt.Printf("Client %d finished operations.\n", id)
+	fmt.Printf("Client %d finished operations.\n", client.ID)
 
 	resultsCh <- opsCompleted
 }
@@ -209,12 +163,28 @@ func main() {
 	done := atomic.Bool{}
 	resultsCh := make(chan uint64)
 
-	host := hosts[0]
-	clientId := 0
-	go func(clientId int) {
+	clientHost, err := os.Hostname()
+	if err != nil {
+		log.Fatal(err)
+	}
+	port := "8080"
+	clientAddr := strings.SplitN(clientHost, ".", 2)[0] // short hostname
+	clientID := 0
+
+	client := NewClient(clientID, clientAddr, hosts)
+	rpc.Register(&client.cache)
+	rpc.HandleHTTP()
+
+	l, e := net.Listen("tcp", fmt.Sprintf(":%v", port))
+	if e != nil {
+		log.Fatal("listen error:", e)
+	}
+	go http.Serve(l, nil)
+
+	go func(client *Client) {
 		workload := kvs.NewWorkload(*workload, *theta)
-		runClient(clientId, host, &done, workload, resultsCh)
-	}(clientId)
+		runClient(client, &done, workload, resultsCh)
+	}(client)
 
 	time.Sleep(time.Duration(*secs) * time.Second)
 	done.Store(true)

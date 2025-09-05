@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,14 +32,25 @@ type KVService struct {
 	stats        Stats
 	prevStats    Stats
 	lastPrint    time.Time
-	clientCaches map[string]map[string]*rpc.Client // key -> set of clientIDs that have it cached
+	clients      map[string]*rpc.Client
+	clientCaches sync.Map // (key, sync.Map(clientID, {}) )
 }
 
-func NewKVService() *KVService {
+func NewKVService(clientAddrs []string) *KVService {
+	// init kvs
 	kvs := &KVService{}
 	kvs.mp = make(map[string]string)
-	kvs.clientCaches = make(map[string]map[string]*rpc.Client)
 	kvs.lastPrint = time.Now()
+
+	// connect to clients for cache updating
+	for _, addr := range clientAddrs {
+		rpcCache, err := rpc.DialHTTP("tcp", addr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		kvs.clients[addr] = rpcCache
+	}
+
 	return kvs
 }
 
@@ -48,8 +60,13 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 
 	kv.stats.gets++
 
+	// If key is in the store, return it and register which client has cached it
 	if value, found := kv.mp[request.Key]; found {
 		response.Value = value
+
+		// Register that client is caching the key
+		clientsMap, _ := kv.clientCaches.LoadOrStore(request.Key, &sync.Map{})
+		clientsMap.(*sync.Map).Store(request.ClientAddr, struct{}{})
 	}
 
 	return nil
@@ -63,44 +80,17 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 
 	kv.mp[request.Key] = request.Value
 
-	// Send invalidations to all clients that have this key cached
-	if clients, exists := kv.clientCaches[request.Key]; exists {
-		for clientID, rpcClient := range clients {
-			invalidateReq := &kvs.InvalidationRequest{Key: request.Key}
-			invalidateResp := &kvs.InvalidationResponse{}
-			// Do async RPC call to avoid blocking
-			go func(client *rpc.Client, cid string) {
-				err := client.Call("Client.Invalidate", invalidateReq, invalidateResp)
-				if err != nil {
-					// Client might be dead, remove it from our cache
-					kv.Lock()
-					delete(kv.clientCaches[request.Key], cid)
-					if len(kv.clientCaches[request.Key]) == 0 {
-						delete(kv.clientCaches, request.Key)
-					}
-					kv.Unlock()
-				}
-			}(rpcClient, clientID)
+	// Send updated value to all clients that have cached this key
+	if clientsMap, found := kv.clientCaches.Load(request.Key); found {
+		updateRequest := kvs.UpdateRequest{
+			Key:   request.Key,
+			Value: request.Value,
 		}
-	}
-
-	return nil
-}
-
-func (kv *KVService) RegisterCache(request *kvs.RegisterCacheRequest, response *kvs.RegisterCacheResponse) error {
-	kv.Lock()
-	defer kv.Unlock()
-
-	// Create a new RPC client for the registering client if we don't have one
-	if _, exists := kv.clientCaches[request.Key]; !exists {
-		kv.clientCaches[request.Key] = make(map[string]*rpc.Client)
-	}
-
-	// Store the client's RPC connection for future invalidations
-	if client, err := rpc.DialHTTP("tcp", request.ClientID); err == nil {
-		kv.clientCaches[request.Key][request.ClientID] = client
-	} else {
-		return err
+		updateResponse := kvs.UpdateResponse{}
+		clientsMap.(*sync.Map).Range(func(key, _ any) bool {
+			kv.clients[key.(string)].Call("KVCache.Update", &updateRequest, &updateResponse)
+			return true
+		})
 	}
 
 	return nil
@@ -125,11 +115,25 @@ func (kv *KVService) printStats() {
 		float64(diff.gets+diff.puts)/deltaS)
 }
 
+type ClientList []string
+
+func (c *ClientList) String() string {
+	return strings.Join(*c, ",")
+}
+
+func (c *ClientList) Set(value string) error {
+	*c = strings.Split(value, ",")
+	return nil
+}
+
 func main() {
+	clients := ClientList{}
+
 	port := flag.String("port", "8080", "Port to run the server on")
+	flag.Var(&clients, "clients", "Comma-separated list of client:ports to connect to")
 	flag.Parse()
 
-	kvs := NewKVService()
+	kvs := NewKVService(clients)
 	rpc.Register(kvs)
 	rpc.HandleHTTP()
 

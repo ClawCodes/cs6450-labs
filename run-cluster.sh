@@ -44,8 +44,8 @@ LOG_ROOT="${ROOT}/logs"
 
 function cluster_size() {
     geni-get -a | \
-        grep -Po '<host name=\\".*?\"' | \
-        sed 's/<host name=\\"\(.*\)\\"/\1/' | \
+        grep -Po '<interface_ref client_id=\\".*?\"' | \
+        sed 's/<interface_ref client_id=\\"\(.*\)\\"/\1/' | \
         sort | \
         uniq | \
         wc -l
@@ -160,9 +160,18 @@ make
 echo
 
 # Start servers
+# Build comma-separated list of client hosts with port 8080
+for node in "${CLIENT_NODES[@]}"; do
+    if [ -n "$CLIENT_HOSTS" ]; then
+        CLIENT_HOSTS="$CLIENT_HOSTS,$node:8080"
+    else
+        CLIENT_HOSTS="$node:8080"
+    fi
+done
+
 for node in "${SERVER_NODES[@]}"; do
     echo "Starting server on $node..."
-    ${SSH} $node "${ROOT}/bin/kvsserver $SERVER_ARGS > \"$LOG_DIR/kvsserver-$node.log\" 2>&1 &"
+    ${SSH} $node "${ROOT}/bin/kvsserver -clients $CLIENT_HOSTS $SERVER_ARGS > \"$LOG_DIR/kvsserver-$node.log\" 2>&1 &"
 done
 
 # Give servers time to start
