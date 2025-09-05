@@ -168,7 +168,7 @@ func main() {
 		log.Fatal(err)
 	}
 	port := "8080"
-	clientAddr := strings.SplitN(clientHost, ".", 2)[0] // short hostname
+	clientAddr := strings.SplitN(clientHost, ".", 2)[0] + ":" + port
 	clientID := 0
 
 	client := NewClient(clientID, clientAddr, hosts)

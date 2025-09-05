@@ -161,6 +161,7 @@ echo
 
 # Start servers
 # Build comma-separated list of client hosts with port 8080
+CLIENT_HOSTS=""
 for node in "${CLIENT_NODES[@]}"; do
     if [ -n "$CLIENT_HOSTS" ]; then
         CLIENT_HOSTS="$CLIENT_HOSTS,$node:8080"
