@@ -40,16 +40,8 @@ func NewKVService(clientAddrs []string) *KVService {
 	// init kvs
 	kvs := &KVService{}
 	kvs.mp = make(map[string]string)
+	kvs.clients = make(map[string]*rpc.Client)
 	kvs.lastPrint = time.Now()
-
-	// connect to clients for cache updating
-	for _, addr := range clientAddrs {
-		rpcCache, err := rpc.DialHTTP("tcp", addr)
-		if err != nil {
-			log.Fatal(err)
-		}
-		kvs.clients[addr] = rpcCache
-	}
 
 	return kvs
 }
@@ -65,7 +57,15 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 		response.Value = value
 
 		// Register that client is caching the key
-		clientsMap, _ := kv.clientCaches.LoadOrStore(request.Key, &sync.Map{})
+		clientsMap, loaded := kv.clientCaches.LoadOrStore(request.Key, &sync.Map{})
+		if !loaded {
+			// dial client for futute rpc calls to update cache
+			rpcCache, err := rpc.DialHTTP("tcp", request.ClientAddr)
+			if err != nil {
+				log.Fatal(err)
+			}
+			kv.clients[request.ClientAddr] = rpcCache
+		}
 		clientsMap.(*sync.Map).Store(request.ClientAddr, struct{}{})
 	}
 
