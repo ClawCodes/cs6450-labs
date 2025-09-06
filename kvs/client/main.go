@@ -70,7 +70,7 @@ func serverFromKey(key *string, servers []*Client) *Client {
 
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	value := strings.Repeat("x", 128)
-	const batchSize = 4096
+	const batchSize = 8192
 
 	opsCompleted := uint64(0)
 
@@ -113,49 +113,49 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 	resultsCh <- opsCompleted
 }
 
-func runClientWithBatchSize(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, batchSize int, resultsCh chan<- uint64) {
-	value := strings.Repeat("x", 128)
+// func runClientWithBatchSize(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, batchSize int, resultsCh chan<- uint64) {
+// 	value := strings.Repeat("x", 128)
 
-	opsCompleted := uint64(0)
+// 	opsCompleted := uint64(0)
 
-	for !done.Load() {
-		// Collect operations in order to preserve linearizability
-		serverOperations := make(map[Client][]kvs.Operation)
+// 	for !done.Load() {
+// 		// Collect operations in order to preserve linearizability
+// 		serverOperations := make(map[Client][]kvs.Operation)
 
-		for j := 0; j < batchSize; j++ {
-			op := workload.Next()
-			key := fmt.Sprintf("%d", op.Key)
-			server := serverFromKey(&key, servers)
+// 		for j := 0; j < batchSize; j++ {
+// 			op := workload.Next()
+// 			key := fmt.Sprintf("%d", op.Key)
+// 			server := serverFromKey(&key, servers)
 
-			if _, ok := serverOperations[*server]; !ok {
-				serverOperations[*server] = make([]kvs.Operation, 0, batchSize)
-			}
+// 			if _, ok := serverOperations[*server]; !ok {
+// 				serverOperations[*server] = make([]kvs.Operation, 0, batchSize)
+// 			}
 
-			if op.IsRead {
-				serverOperations[*server] = append(serverOperations[*server], kvs.Operation{
-					OpType: "GET",
-					Key:    key,
-					Value:  "",
-				})
-			} else {
-				serverOperations[*server] = append(serverOperations[*server], kvs.Operation{
-					OpType: "PUT",
-					Key:    key,
-					Value:  value,
-				})
-			}
-		}
+// 			if op.IsRead {
+// 				serverOperations[*server] = append(serverOperations[*server], kvs.Operation{
+// 					OpType: "GET",
+// 					Key:    key,
+// 					Value:  "",
+// 				})
+// 			} else {
+// 				serverOperations[*server] = append(serverOperations[*server], kvs.Operation{
+// 					OpType: "PUT",
+// 					Key:    key,
+// 					Value:  value,
+// 				})
+// 			}
+// 		}
 
-		for server, operations := range serverOperations {
-			server.BatchOp(operations)
-		}
-		opsCompleted += uint64(batchSize)
-	}
+// 		for server, operations := range serverOperations {
+// 			server.BatchOp(operations)
+// 		}
+// 		opsCompleted += uint64(batchSize)
+// 	}
 
-	fmt.Printf("Client %d finished operations.\n", id)
+// 	fmt.Printf("Client %d finished operations.\n", id)
 
-	resultsCh <- opsCompleted
-}
+// 	resultsCh <- opsCompleted
+// }
 
 type HostList []string
 
@@ -208,11 +208,11 @@ func main() {
 
 	connections := dialHosts(hosts)
 	// numClients := *numClientsFlag	// If want to test the effect of numClients, uncomment this and comment out the line below
-	numClients := 256
+	numClients := 128
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
 			workload := kvs.NewWorkload(*workload, *theta)
-			runClientWithBatchSize(clientId, connections, &done, workload, *batchSizeFlag, resultsCh)
+			runClient(clientId, connections, &done, workload, resultsCh)
 		}(i)
 	}
 
