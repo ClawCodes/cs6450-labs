@@ -40,7 +40,8 @@ usage() {
     echo "  $0              # Auto-split: 4 nodes -> 2 servers + 2 clients, 8 nodes -> 4 servers + 4 clients"
     echo "  $0 64           # Test up to 64 clients, auto-split nodes"
     echo "  $0 32 2 2       # Test up to 32 clients, 2 servers, 2 client nodes"
-    echo "  $0 16 3 1 60    # Test up to 16 clients, 3 servers, 1 client node, 60s duration"
+    echo "  $0 32 2 2 20      # Test up to 32 clients, 2 servers, 2 client nodes, batchSize of 20"
+    echo "  $0 16 3 1 20 60    # Test up to 16 clients, 3 servers, 1 client node, batchSize of 20, 60s duration"
     exit 1
 }
 
@@ -64,8 +65,9 @@ else
     CLIENT_COUNT=$((AVAILABLE_COUNT - SERVER_COUNT))
 fi
 
-TEST_DURATION=${4:-30}
-WORKLOAD=${5:-"YCSB-B"}
+BATCH_SIZE=${4:-1}
+TEST_DURATION=${5:-30}
+WORKLOAD=${6:-"YCSB-B"}
 
 # Validate arguments
 if ! [[ "$MAX_CLIENTS" =~ ^[0-9]+$ ]] || [ "$MAX_CLIENTS" -eq 0 ]; then
@@ -103,6 +105,7 @@ echo "=== Client Scaling Benchmark ==="
 echo "Available nodes: $AVAILABLE_COUNT"
 echo "Server count: $SERVER_COUNT"
 echo "Client node count: $CLIENT_COUNT"
+echo "Batch size: ${BATCH_SIZE}"
 echo "Test duration: ${TEST_DURATION}s"
 echo "Workload: $WORKLOAD"
 echo "Results will be saved to: $RESULTS_FILE"
@@ -133,7 +136,7 @@ for num_clients in "${CLIENT_COUNTS[@]}"; do
     echo "=== Testing with $num_clients clients across $CLIENT_COUNT client nodes ==="
     
     # Use run-cluster.sh with custom client args
-    CLIENT_ARGS="-secs $TEST_DURATION -workload $WORKLOAD -theta $THETA -numClients $num_clients"
+    CLIENT_ARGS="-secs $TEST_DURATION -workload $WORKLOAD -theta $THETA -numClients $num_clients -batchSize $BATCH_SIZE"
     
     echo "Running: ./run-cluster.sh $SERVER_COUNT $CLIENT_COUNT \"\" \"$CLIENT_ARGS\""
     

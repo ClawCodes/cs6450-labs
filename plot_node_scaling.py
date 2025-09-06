@@ -47,7 +47,7 @@ def plot_data(plt: plt.Figure, df: pd.DataFrame, x_col: str, y_col: str, annotat
 
 
 def plot_node_scaling_exp(*filenames: Union[str, Path], x_col: str, y_col: str, x_label: str, y_label: str,
-                          title: str, annotate: bool, outfile: Optional[Union[str, Path]]) -> None:
+                          title: str, outfile: Optional[Union[str, Path]], annotate: bool = True) -> None:
     all_exp = load_csvs(*filenames)
     plt = create_plot(x_label, y_label, title)
 
@@ -64,19 +64,30 @@ def plot_node_scaling_exp(*filenames: Union[str, Path], x_col: str, y_col: str, 
     else:
         plt.show()
 
+def plot_single_exp(filename: str, x_col: str, y_col: str, x_label: str, y_label: str,
+                          title: str, outfile: Optional[Union[str, Path]], annotate: bool = True) -> None:
+    df = load_csv(filename)
+    plt = create_plot(x_label, y_label, title)
+    plot_data(plt, df, x_col, y_col, annotate=annotate)
+
+    if outfile:
+        plt.savefig(outfile)
+    else:
+        plt.show()
+
 
 def main():
     exp_4_nodes_dir = ROOT.joinpath('node_scaling_exp_4_nodes')
     save_dir = ROOT.joinpath('charts/node_scaling/')
 
     # scaling clients
-    plot_node_scaling_exp(*exp_4_nodes_dir.glob('client*.csv'),
-                          x_col='numClients',
-                          y_col='throughput_ops_per_sec',
-                          x_label='Number of Concurrent Goroutines',
-                          y_label='Throughput (ops/s)',
-                          title='Client side goroutine scaling across varying client-node combinations',
-                          outfile=save_dir.joinpath('client_scaling_4_nodes.png'))
+    # plot_node_scaling_exp(*exp_4_nodes_dir.glob('client*.csv'),
+    #                       x_col='numClients',
+    #                       y_col='throughput_ops_per_sec',
+    #                       x_label='Number of Concurrent Goroutines',
+    #                       y_label='Throughput (ops/s)',
+    #                       title='Client side goroutine scaling across varying client-node combinations',
+    #                       outfile=save_dir.joinpath('client_scaling_4_nodes.png'))
 
     # scaling batch
     plot_node_scaling_exp(*exp_4_nodes_dir.glob('batch*.csv'),
@@ -100,13 +111,23 @@ def main():
                           annotate=False)
 
     # scaling batch
-    # plot_node_scaling_exp(*exp_8_nodes_dir.glob('batch*.csv'),
-    #                       x_col='batchSize',
-    #                       y_col='throughput_ops_per_sec',
-    #                       x_label='Batch Size',
-    #                       y_label='Throughput (ops/s)',
-    #                       title='Batch size scaling across varying client-node combinations',
-    #                       outfile=save_dir.joinpath('batch_scaling_4_nodes.png'))
+    plot_node_scaling_exp(*exp_8_nodes_dir.glob('batch*.csv'),
+                          x_col='batchSize',
+                          y_col='throughput_ops_per_sec',
+                          x_label='Batch Size',
+                          y_label='Throughput (ops/s)',
+                          title='Batch size scaling across varying client-node combinations',
+                          outfile=save_dir.joinpath('batch_scaling_8_nodes.png'),
+                          annotate=False)
+
+    plot_single_exp("client_scaling_8_node_batch_8192/client_scaling_4_servers_4_clients_batchsize_8192.csv",
+                          x_col='numClients',
+                          y_col='throughput_ops_per_sec',
+                          x_label='Number of Concurrent Goroutines',
+                          y_label='Throughput (ops/s)',
+                          title='Client side goroutine scaling with 4 servers, 4 clients, and batch size of 8192',
+                          outfile=save_dir.joinpath('client_scaling_4_serv_4_client_8192_batch.png'),
+                          annotate=True)
 
 
 if __name__ == '__main__':
