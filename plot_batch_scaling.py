@@ -43,7 +43,7 @@ def plot_batch_scaling(csv_file='batch_scaling_results.csv'):
     
     # Save the plot
     output_file = 'batch_scaling_plot.png'
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    # plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Plot saved as: {output_file}")
     
     # Display statistics

@@ -7,7 +7,10 @@ set -euo pipefail
 
 # Configuration
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RESULTS_FILE="${ROOT}/batch_scaling_results.csv"
+CSV_DIR="${CSV_DIR:-$ROOT}" # Set CSV_DIR env var to save csvs to alternate location
+OUTFILE="${CSV_FILE_NAME:-client_scaling_results.csv}"
+RESULTS_FILE="${CSV_DIR}/${OUTFILE}"
+
 TEST_DURATION=30
 WORKLOAD="YCSB-B"
 THETA=0.99
