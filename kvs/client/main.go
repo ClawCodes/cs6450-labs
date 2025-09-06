@@ -70,7 +70,7 @@ func serverFromKey(key *string, servers []*Client) *Client {
 
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	value := strings.Repeat("x", 128)
-	const batchSize = 1
+	const batchSize = 4096
 
 	opsCompleted := uint64(0)
 
