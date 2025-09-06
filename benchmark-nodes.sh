@@ -45,7 +45,7 @@ mkdir -p "$DIRECTORY" # Create dir if not exists
 echo "Experiment: $EXPERIMENT"
 echo "Directory:  $DIRECTORY"
 
-export CSV_DIR=$DIRECTORY # Export ROOT for child benchmark script
+export CSV_DIR=$DIRECTORY # Export CSV_DIR for child benchmark script
 
 NUM_CLIENT_THREADS=128
 MIN_BATCH=1024

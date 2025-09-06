@@ -207,8 +207,8 @@ func main() {
 	resultsCh := make(chan uint64)
 
 	connections := dialHosts(hosts)
-	// numClients := *numClientsFlag	// If want to test the effect of numClients, uncomment this and comment out the line below
-	numClients := 256
+	numClients := *numClientsFlag	// If want to test the effect of numClients, uncomment this and comment out the line below
+// 	numClients := 256
 	for i := 0; i < numClients; i++ {
 		go func(clientId int) {
 			workload := kvs.NewWorkload(*workload, *theta)
