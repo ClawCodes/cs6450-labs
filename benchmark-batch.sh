@@ -152,6 +152,7 @@ for batch_size in "${BATCH_SIZES[@]}"; do
     echo "Running: ./run-cluster.sh $SERVER_COUNT $CLIENT_COUNT \"\" \"$CLIENT_ARGS\""
     
     # Run the cluster with specified server and client node counts
+    export GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no"   # !!!!
     ./run-cluster.sh "$SERVER_COUNT" "$CLIENT_COUNT" "" "$CLIENT_ARGS"
     
     # Extract throughput from all client logs and sum them up
