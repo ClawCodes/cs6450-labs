@@ -81,13 +81,13 @@ def main():
     save_dir = ROOT.joinpath('charts/node_scaling/')
 
     # scaling clients
-    # plot_node_scaling_exp(*exp_4_nodes_dir.glob('client*.csv'),
-    #                       x_col='numClients',
-    #                       y_col='throughput_ops_per_sec',
-    #                       x_label='Number of Concurrent Goroutines',
-    #                       y_label='Throughput (ops/s)',
-    #                       title='Client side goroutine scaling across varying client-node combinations',
-    #                       outfile=save_dir.joinpath('client_scaling_4_nodes.png'))
+    plot_node_scaling_exp(*exp_4_nodes_dir.glob('client*.csv'),
+                          x_col='numClients',
+                          y_col='throughput_ops_per_sec',
+                          x_label='Number of Concurrent Goroutines',
+                          y_label='Throughput (ops/s)',
+                          title='Client side goroutine scaling across varying client-node combinations',
+                          outfile=save_dir.joinpath('client_scaling_4_nodes.png'))
 
     # scaling batch
     plot_node_scaling_exp(*exp_4_nodes_dir.glob('batch*.csv'),
