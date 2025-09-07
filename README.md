@@ -58,6 +58,8 @@ As we are implementing a distributed key-value store, we want to take advantage 
 
 While sharding and distributing requests to multiple server nodes produced no throughput improvements on its own, it produced drastic improvements when combined with our other changes. These improvements can be seen in all of our throughput plots for said changes in later sections. In each of these plots, we run each test with different distributions of client to server nodes.
 
+One alternative approach considered was to replicate data across server nodes and distribute requests evenly to spread the network load across servers. This would help ensure linearizability while avoiding overloading a single node with requests. The tradeoff though is this would require a much more complex implementation including replication and consensus and would not be as lightweight. Given time constraints, this approach was not implemented and could not be sufficiently compared to the sharing methodology.
+
 #### Additional Client Concurrency
 
 Our next design decision was to introduce numerous goroutines on the client side to add concurrency to the `runClient` function. By introducing concurrency to our clients, we massively improve throughput by overlapping multiple requests simultaneously, thereby utilizing the CPU far more efficiently. We devised a script to test throughput with various goroutine counts to narrow down the most optimal number, and reran those tests with differing client to server distributions. These results are below:
