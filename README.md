@@ -4,7 +4,7 @@
 ## Results
 
 ### Throughput
-After combining our changes and running on an 8 node cluster with ideal parameters, our group reached a **peak total throughput of 31,323,264 op/s**.
+After combining our changes and running on an 8 node cluster with ideal parameters, our group reached a **peak total throughput of ~31M op/s**.
 
 ![Final throughput](images/final_throughput.png)
 
