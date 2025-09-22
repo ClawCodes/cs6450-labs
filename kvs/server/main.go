@@ -51,8 +51,9 @@ func NewKVService() *KVService {
 }
 
 func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
+	//Add to transaction map if it hasn't been added yet
 	if _, found := kv.transactions.Load(request.Txid); !found {
-		kv.transactions.Store(request.Txid,  make([]Operation, 0, 4)) 
+		kv.transactions.Store(request.Txid,  make([]Operation, 0, 4)) //Transaction should only have up to 4 operation, but it can grow if needed
 	}
 
 	//Looks for key holders for the requests key, acquire a shared lock if there are no write locks or no locks at all
@@ -82,13 +83,14 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 }
 
 func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
+	//Add to transaction map if it hasn't been added yet
 	if _, found := kv.transactions.Load(request.Txid); !found {
 		kv.transactions.Store(request.Txid,  make([]Operation, 0, 4)) 
 	}
 
 	//Looks for key holders for the requests key, acquire a write lock if there are no locks at all
 	if keyLockHolders, found := kv.readSet.LoadOrStore(request.key, map[uint64]*uint64{request.Txid: *request.Txid}); found {
-		if _, found := keyLockHolders[request.Txid]; !found && len(keyLockHolders) > 1 { //if there is a lock holder for the key, it must belong to the same transaction
+		if _, found := keyLockHolders[request.Txid]; !found && len(keyLockHolders) > 1 { //if there is a lock holder for the key, it must belong to the same transaction or it has to abort
 			keyLockHolders[request.Txid] = *request.Txid //key has no read/write locks, so acquire write lock. Pointer to writer is non-nil
 		}else{
 			//if there are key holders that don't belong to this transaction, a write lock cannot be acquired
