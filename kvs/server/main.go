@@ -8,8 +8,9 @@ import (
 	"net/http"
 	"net/rpc"
 	"sync"
+	"sync/atomic"
 	"time"
-
+	"errors"
 	"github.com/rstutsman/cs6450-labs/kvs"
 )
 
@@ -31,75 +32,111 @@ type Operation struct {
 	Key    string
 	Value  string // Empty for GET operations
 }
-type Tx struct {
-	Txid uint64
-	Operations []Operation
-
-}
 type KVService struct {
 	sync.Mutex
-	mp        map[string]string
-	readSet  map[string]map[uint64]*uint64
-	transactions map[uint64][]Operation
-	stats     Stats
-	prevStats Stats
-	lastPrint time.Time
+	mp           sync.map //map[string]string
+	readSet      sync.map//map[string]map[uint64]*uint64 //maps keys to the set of transactions that hold locks for that key
+	transactions sync.map //map[uint64][]Operation  //maps transactions to their operations.
+	stats        Stats
+	prevStats    Stats
+	lastPrint    time.Time
 }
 
 func NewKVService() *KVService {
 	kvs := &KVService{}
-	kvs.mp = make(map[string]string)
-	kvs.readSet = make(map[string]map[uint64]*uint64) //maps keys to the set of transactions that hold locks for that key
-	kvs.transactions = make(map[uint64][]Operation) //maps transactions to their operations. 
 	kvs.lastPrint = time.Now()
 	return kvs
 }
 
 func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) error {
-	kv.stats.gets++
-	if value, found := kv.transactions[request.Txid]; !found {
-		//transaction := Tx{Txid: request.Txid, Operations: make([]Operation, 0, 4)} 
-		kv.transactions[request.Txid] = make([]Operation, 0, 4)
+	if _, found := kv.transactions.Load(request.Txid); !found {
+		kv.transactions.Store(request.Txid,  make([]Operation, 0, 4)) 
 	}
-	if keyLockHolders, found := kv.readSet[request.Key]; found { 
+
+	//Looks for key holders for the requests key, acquire a shared lock if there are no write locks or no locks at all
+	if keyLockHolders, found := kv.readSet.LoadOrStore(request.key, map[uint64]*uint64{request.Txid: nil}); found {
 		for _, writeLockHolder := range keyLockHolders{ //This loop may be slow, could consider separate writeSet
 			if writeLockHolder != nil{
-				//Abort! Key is write locked
-				response.Error = true
-				return nil
+				//Abort: Key is write locked
+				dropLocks(request.Txid)
+				return errors.new("Abort: Cannot acquire Read Lock, key is currently write locked")
 			}
 		}
 		if _, found := keyLockHolders[request.Txid]; !found { //if the transaction is found, it already has a read lock. This shouldn't happen in practice due to client side readset
-			kv.readSet[request.Key][request.Txid] = nil //key has no write locks, can aquire read lock
+			keyLockHolders[request.Txid] = nil //key has no write locks, so acquire read lock. Pointer to writer is nil
 		}	
-	}else{
-		//Important: I'm worried about a possible race condition here, what if a write lock is acquired in between checking for lock holders and this line?
-		kv.readSet[request.Key] = map[uint64]*uint64{request.Txid: nil} //key has no read/write locks, can aquire read lock
 	}
 	kv.transactions[request.Txid] = append(kv.transactions[request.Txid], Operation{
 					OpType: "GET",
 					Key:    request.key,
 					Value:  "",
 				})
-	if value, found := kv.mp[request.Key]; found {
-		response.Value = value
-		response.Error = false
+	if value, found := kv.mp.Load(key); found {
+		response.Value = value.(string)
+		atomic.AddUint64(&kv.stats.gets, 1)
 	}
-
 	return nil
 }
 
 func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
-	kv.Lock()
-	defer kv.Unlock()
+	if _, found := kv.transactions.Load(request.Txid); !found {
+		kv.transactions.Store(request.Txid,  make([]Operation, 0, 4)) 
+	}
 
-	kv.stats.puts++
-
-	kv.mp[request.Key] = request.Value
+	//Looks for key holders for the requests key, acquire a write lock if there are no locks at all
+	if keyLockHolders, found := kv.readSet.LoadOrStore(request.key, map[uint64]*uint64{request.Txid: *request.Txid}); found {
+		if _, found := keyLockHolders[request.Txid]; !found && len(keyLockHolders) > 1 { //if there is a lock holder for the key, it must belong to the same transaction
+			keyLockHolders[request.Txid] = *request.Txid //key has no read/write locks, so acquire write lock. Pointer to writer is non-nil
+		}else{
+			//if there are key holders that don't belong to this transaction, a write lock cannot be acquired
+			//Abort
+			dropLocks(request.Txid)
+			return errors.new("Abort: Cannot acquire Write Lock, key is currently locked")
+		}
+	}
+	//Buffer the put request, it will be completed in commit phase
+	kv.transactions[request.Txid] = append(kv.transactions[request.Txid], Operation{
+					OpType: "PUT",
+					Key:    request.key,
+					Value:  request.value,
+				})
 
 	return nil
 }
+//Installs all put requests from the transaction, then drops related locks and removes the transaction
+func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResponse) error {
+	if operations, found := kv.transactions.Load(request.Txid); found {
+		for i, op := range operations {
+			if op.OpType == "PUT" {
+				atomic.AddUint64(&kv.stats.puts, 1)
+				kv.mp.Store(op.Key, op.Value)
+				response.Results[i] = ""
+			}
+		}
+		atomic.AddUint64(&kv.stats.commits, 1)
+		//need to release locks after ALL changes applied
+		dropLocks(request.Txid)
+	}
+}
 
+//Handler/Wrapper for Aborts from client
+func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortResponse) error {
+	dropLocks(request.Txid)
+	return nil
+}
+//Closes a transaction by deleting all locks it holds, then removes the transaction from the map
+func (kv *KVService) dropLocks(Txid uin64){
+	if operations, found := kv.transactions.Load(Txid); found {
+		for i, op := range operations {
+			if keyLockHolders, found := kv.readSet.Load(op.Key); found {
+					if _, found := keyLockHolders[Txid]; found { 
+						delete(keyLockHolders,Txid)  
+					}	
+				}
+		}
+		kv.transactions.Delete(Txid) 
+	}
+}
 func (kv *KVService) printStats() {
 	kv.Lock()
 	stats := kv.stats

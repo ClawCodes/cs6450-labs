@@ -7,7 +7,6 @@ type PutRequest struct {
 }
 
 type PutResponse struct {
-	Error bool
 }
 
 type GetRequest struct {
@@ -17,5 +16,20 @@ type GetRequest struct {
 
 type GetResponse struct {
 	Value string
-	Error bool
+}
+
+type CommitRequest struct {
+	Txid uint64
+}
+
+type CommitResponse struct {
+	
+}
+
+type AbortRequest struct {
+	Txid uint64
+}
+
+type AbortResponse struct {
+	
 }
