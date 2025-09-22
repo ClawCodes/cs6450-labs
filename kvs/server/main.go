@@ -123,6 +123,7 @@ func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResp
 		//need to release locks after ALL changes applied
 		dropLocks(request.Txid)
 	}
+	return nil
 }
 
 //Handler/Wrapper for Aborts from client
