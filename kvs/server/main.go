@@ -25,6 +25,8 @@ func (s *Stats) Sub(prev *Stats) Stats {
 	r := Stats{}
 	r.puts = s.puts - prev.puts
 	r.gets = s.gets - prev.gets
+	r.commits = s.commits - prev.commits
+	r.aborts = s.aborts - prev.aborts
 	return r
 }
 type Operation struct {
@@ -59,6 +61,7 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 			if writeLockHolder != nil{
 				//Abort: Key is write locked
 				dropLocks(request.Txid)
+				atomic.AddUint64(&kv.stats.aborts, 1)
 				return errors.new("Abort: Cannot acquire Read Lock, key is currently write locked")
 			}
 		}
@@ -91,6 +94,7 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 			//if there are key holders that don't belong to this transaction, a write lock cannot be acquired
 			//Abort
 			dropLocks(request.Txid)
+			atomic.AddUint64(&kv.stats.aborts, 1)
 			return errors.new("Abort: Cannot acquire Write Lock, key is currently locked")
 		}
 	}
@@ -122,6 +126,7 @@ func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResp
 //Handler/Wrapper for Aborts from client
 func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortResponse) error {
 	dropLocks(request.Txid)
+	atomic.AddUint64(&kv.stats.aborts, 1)
 	return nil
 }
 //Closes a transaction by deleting all locks it holds, then removes the transaction from the map
