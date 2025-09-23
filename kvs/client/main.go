@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/rpc"
 	"strings"
 	"sync/atomic"
@@ -11,6 +13,8 @@ import (
 
 	"github.com/rstutsman/cs6450-labs/kvs"
 )
+
+var randGen = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 type Client struct {
 	rpcClient *rpc.Client
@@ -50,8 +54,59 @@ func (client *Client) Put(key string, value string) {
 	}
 }
 
-func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-	client := Dial(addr)
+type Txn struct {
+	servers  []*Client
+	id       *uint64
+	state    string            // TODO: determine if this is required
+	writeSet map[string]string // Keep write set cache to avoid unnecessary requests
+}
+
+func (txn *Txn) Begin() {
+	id := randGen.Uint64()
+	txn.id = &id
+}
+
+func (txn *Txn) Commit() error {
+	if txn.id == nil {
+		return errors.New("cannot commit a transaction that has not begun")
+	}
+
+	for _, server := range txn.servers {
+		request := kvs.CommitRequest{
+			*txn.id,
+		}
+		response := kvs.CommitResponse{}
+		err := server.rpcClient.Call("KVService.Commit", &request, &response)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	return nil
+}
+
+func (txn *Txn) Abort() error {
+	if txn.id == nil {
+		return errors.New("cannot commit a transaction that has not begun")
+	}
+
+	for _, server := range txn.servers {
+		request := kvs.AbortRequest{
+			*txn.id,
+		}
+		response := kvs.AbortResponse{}
+		err := server.rpcClient.Call("KVService.Abort", &request, &response)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	return nil
+}
+
+func (txn *Txn) Get(key string) error {
+	// TODO: start here
+}
+
+func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 
 	value := strings.Repeat("x", 128)
 	const batchSize = 1024
@@ -62,10 +117,11 @@ func runClient(id int, addr string, done *atomic.Bool, workload *kvs.Workload, r
 		for j := 0; j < batchSize; j++ {
 			op := workload.Next()
 			key := fmt.Sprintf("%d", op.Key)
+			server := serverFromKey(&key, servers)
 			if op.IsRead {
-				client.Get(key)
+				server.Get(key)
 			} else {
-				client.Put(key, value)
+				server.Put(key, value)
 			}
 			opsCompleted++
 		}
@@ -88,6 +144,7 @@ func (h *HostList) Set(value string) error {
 }
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	hosts := HostList{}
 
 	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")
@@ -113,11 +170,11 @@ func main() {
 	done := atomic.Bool{}
 	resultsCh := make(chan uint64)
 
-	host := hosts[0]
+	connections := dialHosts(hosts)
 	clientId := 0
 	go func(clientId int) {
 		workload := kvs.NewWorkload(*workload, *theta)
-		runClient(clientId, host, &done, workload, resultsCh)
+		runClient(clientId, connections, &done, workload, resultsCh)
 	}(clientId)
 
 	time.Sleep(time.Duration(*secs) * time.Second)

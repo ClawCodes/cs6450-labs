@@ -3,14 +3,14 @@ package kvs
 type PutRequest struct {
 	Key   string
 	Value string
-	Txid uint64
+	Txid  uint64
 }
 
 type PutResponse struct {
 }
 
 type GetRequest struct {
-	Key string
+	Key  string
 	Txid uint64
 }
 
@@ -23,7 +23,6 @@ type CommitRequest struct {
 }
 
 type CommitResponse struct {
-	
 }
 
 type AbortRequest struct {
@@ -31,5 +30,4 @@ type AbortRequest struct {
 }
 
 type AbortResponse struct {
-	
 }
