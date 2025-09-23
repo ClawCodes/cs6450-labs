@@ -36,9 +36,9 @@ type Operation struct {
 }
 type KVService struct {
 	sync.Mutex
-	mp           sync.map //map[string]string
-	readSet      sync.map//map[string]map[uint64]*uint64 //maps keys to the set of transactions that hold locks for that key
-	transactions sync.map //map[uint64][]Operation  //maps transactions to their operations.
+	mp           sync.Map //map[string]string
+	readSet      sync.Map//map[string]map[uint64]*uint64 //maps keys to the set of transactions that hold locks for that key
+	transactions sync.Map //map[uint64][]Operation  //maps transactions to their operations.
 	stats        Stats
 	prevStats    Stats
 	lastPrint    time.Time
@@ -57,25 +57,33 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 	}
 
 	//Looks for key holders for the requests key, acquire a shared lock if there are no write locks or no locks at all
-	if keyLockHolders, found := kv.readSet.LoadOrStore(request.key, map[uint64]*uint64{request.Txid: nil}); found {
-		for _, writeLockHolder := range keyLockHolders{ //This loop may be slow, could consider separate writeSet
-			if writeLockHolder != nil{
-				//Abort: Key is write locked
-				dropLocks(request.Txid)
-				atomic.AddUint64(&kv.stats.aborts, 1)
-				return errors.new("Abort: Cannot acquire Read Lock, key is currently write locked")
+	if keyLockHolders, found := kv.readSet.LoadOrStore(request.Key, map[uint64]*uint64{request.Txid: nil}); found {
+		if keyLockHolders, ok := keyLockHolders.(map[uint64]*uint64); ok {
+			for _, writeLockHolder := range keyLockHolders{ //This loop may be slow, could consider separate writeSet
+				if writeLockHolder != nil{
+					//Abort: Key is write locked
+					kv.dropLocks(request.Txid)
+					//dropLocks(request.Txid)
+					atomic.AddUint64(&kv.stats.aborts, 1)
+					return errors.New("Abort: Cannot acquire Read Lock, key is currently write locked")
+				}
 			}
+			if _, found := keyLockHolders[request.Txid]; !found { //if the transaction is found, it already has a read lock. This shouldn't happen in practice due to client side readset
+				keyLockHolders[request.Txid] = nil //key has no write locks, so acquire read lock. Pointer to writer is nil
+			}	
 		}
-		if _, found := keyLockHolders[request.Txid]; !found { //if the transaction is found, it already has a read lock. This shouldn't happen in practice due to client side readset
-			keyLockHolders[request.Txid] = nil //key has no write locks, so acquire read lock. Pointer to writer is nil
-		}	
 	}
-	kv.transactions[request.Txid] = append(kv.transactions[request.Txid], Operation{
+	var ops, _ = kv.transactions.Load(request.Txid)
+	if ops, ok := ops.([]Operation); ok {
+        ops = append(ops, Operation{
 					OpType: "GET",
-					Key:    request.key,
-					Value:  "",
+					Key:  request.Key,
 				})
-	if value, found := kv.mp.Load(key); found {
+    }
+	
+	kv.transactions.Store(request.Txid, ops)
+	
+	if value, found := kv.mp.Load(request.Key); found {
 		response.Value = value.(string)
 		atomic.AddUint64(&kv.stats.gets, 1)
 	}
@@ -89,60 +97,74 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	}
 
 	//Looks for key holders for the requests key, acquire a write lock if there are no locks at all
-	if keyLockHolders, found := kv.readSet.LoadOrStore(request.key, map[uint64]*uint64{request.Txid: *request.Txid}); found {
-		if _, found := keyLockHolders[request.Txid]; !found && len(keyLockHolders) > 1 { //if there is a lock holder for the key, it must belong to the same transaction or it has to abort
-			keyLockHolders[request.Txid] = *request.Txid //key has no read/write locks, so acquire write lock. Pointer to writer is non-nil
-		}else{
-			//if there are key holders that don't belong to this transaction, a write lock cannot be acquired
-			//Abort
-			dropLocks(request.Txid)
-			atomic.AddUint64(&kv.stats.aborts, 1)
-			return errors.new("Abort: Cannot acquire Write Lock, key is currently locked")
+	if keyLockHolders, found := kv.readSet.LoadOrStore(request.Key, map[uint64]*uint64{request.Txid: &request.Txid}); found {
+		if keyLockHolders, ok := keyLockHolders.(map[uint64]*uint64); ok {
+			if _, found := keyLockHolders[request.Txid]; !found && len(keyLockHolders) > 1 { //if there is a lock holder for the key, it must belong to the same transaction or it has to abort
+				keyLockHolders[request.Txid] = &request.Txid //key has no read/write locks, so acquire write lock. Pointer to writer is non-nil
+			}else{
+				//if there are key holders that don't belong to this transaction, a write lock cannot be acquired
+				//Abort
+				kv.dropLocks(request.Txid)
+				//dropLocks(request.Txid)
+				atomic.AddUint64(&kv.stats.aborts, 1)
+				return errors.New("Abort: Cannot acquire Write Lock, key is currently locked")
+			}
 		}
 	}
 	//Buffer the put request, it will be completed in commit phase
-	kv.transactions[request.Txid] = append(kv.transactions[request.Txid], Operation{
+	var ops, _ = kv.transactions.Load(request.Txid)
+	if ops, ok := ops.([]Operation); ok {
+        ops = append(ops, Operation{
 					OpType: "PUT",
-					Key:    request.key,
-					Value:  request.value,
+					Key:    request.Key,
+					Value:  request.Value,
 				})
+    }
+	
+	kv.transactions.Store(request.Txid, ops)
 
 	return nil
 }
 //Installs all put requests from the transaction, then drops related locks and removes the transaction
 func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResponse) error {
 	if operations, found := kv.transactions.Load(request.Txid); found {
-		for i, op := range operations {
-			if op.OpType == "PUT" {
-				atomic.AddUint64(&kv.stats.puts, 1)
-				kv.mp.Store(op.Key, op.Value)
-				response.Results[i] = ""
+		if operations, ok := operations.([]Operation); ok{
+			for _, op := range operations {
+				if op.OpType == "PUT" {
+					atomic.AddUint64(&kv.stats.puts, 1)
+					kv.mp.Store(op.Key, op.Value)
+				}
 			}
+			atomic.AddUint64(&kv.stats.commits, 1)
+			//need to release locks after ALL changes applied
+			kv.dropLocks(request.Txid)
+			//dropLocks(request.Txid)
 		}
-		atomic.AddUint64(&kv.stats.commits, 1)
-		//need to release locks after ALL changes applied
-		dropLocks(request.Txid)
 	}
 	return nil
 }
 
 //Handler/Wrapper for Aborts from client
 func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortResponse) error {
-	dropLocks(request.Txid)
+	kv.dropLocks(request.Txid)
 	atomic.AddUint64(&kv.stats.aborts, 1)
 	return nil
 }
 //Closes a transaction by deleting all locks it holds, then removes the transaction from the map
-func (kv *KVService) dropLocks(Txid uin64){
+func (kv *KVService) dropLocks(Txid uint64){
 	if operations, found := kv.transactions.Load(Txid); found {
-		for i, op := range operations {
-			if keyLockHolders, found := kv.readSet.Load(op.Key); found {
-					if _, found := keyLockHolders[Txid]; found { 
-						delete(keyLockHolders,Txid)  
-					}	
-				}
+		if operations, ok := operations.([]Operation); ok{
+			for _, op := range operations {
+				if keyLockHolders, found := kv.readSet.Load(op.Key); found {
+					if keyLockHolders, ok := keyLockHolders.(map[uint64]*uint64); ok {
+						if _, found := keyLockHolders[Txid]; found { 
+							delete(keyLockHolders,Txid)  
+						}	
+					}
+					}
+			}
+			kv.transactions.Delete(Txid) 
 		}
-		kv.transactions.Delete(Txid) 
 	}
 }
 func (kv *KVService) printStats() {
