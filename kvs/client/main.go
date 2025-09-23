@@ -29,7 +29,7 @@ func Dial(addr string) *Client {
 	return &Client{rpcClient}
 }
 
-func (client *Client) Get(key string) string {
+func (client *Client) Get(key string) (string, error) {
 	request := kvs.GetRequest{
 		Key: key,
 	}
@@ -37,12 +37,13 @@ func (client *Client) Get(key string) string {
 	err := client.rpcClient.Call("KVService.Get", &request, &response)
 	if err != nil {
 		log.Fatal(err)
+		return "", err
 	}
 
-	return response.Value
+	return response.Value, nil
 }
 
-func (client *Client) Put(key string, value string) {
+func (client *Client) Put(key string, value string) error {
 	request := kvs.PutRequest{
 		Key:   key,
 		Value: value,
@@ -51,19 +52,23 @@ func (client *Client) Put(key string, value string) {
 	err := client.rpcClient.Call("KVService.Put", &request, &response)
 	if err != nil {
 		log.Fatal(err)
+		return err
 	}
+	return nil
 }
 
 type Txn struct {
-	servers  []*Client
-	id       *uint64
-	state    string            // TODO: determine if this is required
-	writeSet map[string]string // Keep write set cache to avoid unnecessary requests
+	availServers []*Client
+	usedServers  *Set[*Client]
+	id           *uint64
+	writeSet     map[string]string // Keep write set cache to avoid unnecessary requests
 }
 
-func (txn *Txn) Begin() {
+func (txn *Txn) Begin(availableServers []*Client) {
+	txn.availServers = availableServers
 	id := randGen.Uint64()
 	txn.id = &id
+	txn.usedServers = NewSet[*Client]()
 }
 
 func (txn *Txn) Commit() error {
@@ -71,7 +76,7 @@ func (txn *Txn) Commit() error {
 		return errors.New("cannot commit a transaction that has not begun")
 	}
 
-	for _, server := range txn.servers {
+	for server := range txn.usedServers.values {
 		request := kvs.CommitRequest{
 			*txn.id,
 		}
@@ -89,21 +94,54 @@ func (txn *Txn) Abort() error {
 		return errors.New("cannot commit a transaction that has not begun")
 	}
 
-	for _, server := range txn.servers {
+	for server := range txn.usedServers.values {
 		request := kvs.AbortRequest{
 			*txn.id,
 		}
 		response := kvs.AbortResponse{}
 		err := server.rpcClient.Call("KVService.Abort", &request, &response)
-		if err != nil {
+		if err == nil {
 			log.Fatal(err)
+			return err
 		}
 	}
 	return nil
 }
 
-func (txn *Txn) Get(key string) error {
-	// TODO: start here
+func (txn *Txn) getServer(key string) *Client {
+	server := serverFromKey(&key, txn.availServers)
+	txn.usedServers.Add(server)
+	return server
+}
+
+func (txn *Txn) Get(key string) (string, error) {
+	if txn.id == nil {
+		return "", errors.New("cannot call Get on a transaction that has not begun")
+	}
+	cachedVal := txn.writeSet[key]
+	if cachedVal != "" {
+
+		return cachedVal, nil
+	}
+
+	resp, err := txn.getServer(key).Get(key)
+	if err != nil {
+		return "", txn.Abort()
+	}
+
+	return resp, nil
+}
+
+func (txn *Txn) Put(key string, value string) error {
+	if txn.id == nil {
+		return errors.New("cannot call Put on a transaction that has not begun")
+	}
+	err := txn.getServer(key).Put(key, value)
+	if err != nil {
+		return txn.Abort()
+	}
+	txn.writeSet[key] = value
+	return nil
 }
 
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
