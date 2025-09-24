@@ -36,7 +36,7 @@ func (client *Client) Get(key string) (string, error) {
 	response := kvs.GetResponse{}
 	err := client.rpcClient.Call("KVService.Get", &request, &response)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error during Client.Get: %v", err)
 		return "", err
 	}
 
@@ -51,21 +51,21 @@ func (client *Client) Put(key string, value string) error {
 	response := kvs.PutResponse{}
 	err := client.rpcClient.Call("KVService.Put", &request, &response)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error during Client.Put: %v", err)
 		return err
 	}
 	return nil
 }
 
 type Txn struct {
-	availServers []*Client
-	usedServers  *Set[*Client]
-	id           *uint64
-	writeSet     map[string]string // Keep write set cache to avoid unnecessary requests
+	allServers  []*Client
+	usedServers *Set[*Client]
+	id          *uint64
+	writeSet    map[string]string // Keep write set cache to avoid unnecessary requests
 }
 
 func (txn *Txn) Begin(availableServers []*Client) {
-	txn.availServers = availableServers
+	txn.allServers = availableServers
 	id := randGen.Uint64()
 	txn.id = &id
 	txn.usedServers = NewSet[*Client]()
@@ -76,14 +76,17 @@ func (txn *Txn) Commit() error {
 		return errors.New("cannot commit a transaction that has not begun")
 	}
 
+	lead := true // Make first request the lead for server-side logging
 	for server := range txn.usedServers.values {
 		request := kvs.CommitRequest{
 			*txn.id,
+			lead,
 		}
+		lead = false
 		response := kvs.CommitResponse{}
 		err := server.rpcClient.Call("KVService.Commit", &request, &response)
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("Error during Commit: %v", err)
 		}
 	}
 	return nil
@@ -100,8 +103,8 @@ func (txn *Txn) Abort() error {
 		}
 		response := kvs.AbortResponse{}
 		err := server.rpcClient.Call("KVService.Abort", &request, &response)
-		if err == nil {
-			log.Fatal(err)
+		if err != nil {
+			log.Printf("Error during Abort: %v", err)
 			return err
 		}
 	}
@@ -109,7 +112,7 @@ func (txn *Txn) Abort() error {
 }
 
 func (txn *Txn) getServer(key string) *Client {
-	server := serverFromKey(&key, txn.availServers)
+	server := serverFromKey(&key, txn.allServers)
 	txn.usedServers.Add(server)
 	return server
 }
@@ -120,13 +123,13 @@ func (txn *Txn) Get(key string) (string, error) {
 	}
 	cachedVal := txn.writeSet[key]
 	if cachedVal != "" {
-
 		return cachedVal, nil
 	}
 
 	resp, err := txn.getServer(key).Get(key)
 	if err != nil {
-		return "", txn.Abort()
+		_ = txn.Abort()
+		return "", fmt.Errorf("server-side error raised: %w", err)
 	}
 
 	return resp, nil
@@ -138,30 +141,48 @@ func (txn *Txn) Put(key string, value string) error {
 	}
 	err := txn.getServer(key).Put(key, value)
 	if err != nil {
-		return txn.Abort()
+		_ = txn.Abort()
+		return fmt.Errorf("server-side error raised: %w", err)
 	}
 	txn.writeSet[key] = value
 	return nil
 }
 
-func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
-
+func executeTxn(txn *Txn, workload *kvs.Workload) (uint64, error) {
 	value := strings.Repeat("x", 128)
-	const batchSize = 1024
-
 	opsCompleted := uint64(0)
+	for j := 0; j < 3; j++ { // 3 iterations for requirement of Transactions including 3 Ops only
+		op := workload.Next()
+		key := fmt.Sprintf("%d", op.Key)
+		var err error
+		if op.IsRead {
+			_, err = txn.Get(key)
+		} else {
+			err = txn.Put(key, value)
+		}
+		if err != nil {
+			return opsCompleted, err
+		}
+		opsCompleted++
+	}
+	return opsCompleted, nil
+}
 
+func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
+	opsCompleted := uint64(0)
+	var err error
+	retry := 3
 	for !done.Load() {
-		for j := 0; j < batchSize; j++ {
-			op := workload.Next()
-			key := fmt.Sprintf("%d", op.Key)
-			server := serverFromKey(&key, servers)
-			if op.IsRead {
-				server.Get(key)
-			} else {
-				server.Put(key, value)
+		for retry > 0 {
+			txn := Txn{}
+			txn.Begin(servers)
+			opsCompleted, err = executeTxn(&txn, workload)
+			if err != nil {
+				log.Printf("Error raised during transaction: %w", err)
+				retry--
+				continue
 			}
-			opsCompleted++
+			break // Successfully completed transaction Ops
 		}
 	}
 
@@ -182,7 +203,6 @@ func (h *HostList) Set(value string) error {
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
 	hosts := HostList{}
 
 	flag.Var(&hosts, "hosts", "Comma-separated list of host:ports to connect to")

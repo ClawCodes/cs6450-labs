@@ -128,7 +128,7 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	return nil
 }
 
-//Installs all put requests from the transaction, then drops related locks and removes the transaction
+// Installs all put requests from the transaction, then drops related locks and removes the transaction
 func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResponse) error {
 	if operations, found := kv.transactions.Load(request.Txid); found {
 		if operations, ok := operations.([]Operation); ok {
@@ -147,14 +147,14 @@ func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResp
 	return nil
 }
 
-//Handler/Wrapper for Aborts from client
+// Handler/Wrapper for Aborts from client
 func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortResponse) error {
 	kv.dropLocks(request.Txid)
 	atomic.AddUint64(&kv.stats.aborts, 1)
 	return nil
 }
 
-//Closes a transaction by deleting all locks it holds, then removes the transaction from the map
+// Closes a transaction by deleting all locks it holds, then removes the transaction from the map
 func (kv *KVService) dropLocks(Txid uint64) {
 	if operations, found := kv.transactions.Load(Txid); found {
 		if operations, ok := operations.([]Operation); ok {

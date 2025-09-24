@@ -2,7 +2,7 @@ package main
 
 // Implementation of simple Set data structure which uses a map under the hood
 type Set[T comparable] struct {
-	values map[T]struct{}
+	values map[T]struct{} // empty struct is 0 byte (i.e. map serves as a set)
 }
 
 func NewSet[T comparable]() *Set[T] {

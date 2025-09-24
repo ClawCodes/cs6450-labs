@@ -20,6 +20,7 @@ type GetResponse struct {
 
 type CommitRequest struct {
 	Txid uint64
+	Lead bool
 }
 
 type CommitResponse struct {
