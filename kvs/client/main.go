@@ -29,9 +29,10 @@ func Dial(addr string) *Client {
 	return &Client{rpcClient}
 }
 
-func (client *Client) Get(key string) (string, error) {
+func (client *Client) Get(key string, txid uint64) (string, error) {
 	request := kvs.GetRequest{
-		Key: key,
+		Key:  key,
+		Txid: txid,
 	}
 	response := kvs.GetResponse{}
 	err := client.rpcClient.Call("KVService.Get", &request, &response)
@@ -43,10 +44,11 @@ func (client *Client) Get(key string) (string, error) {
 	return response.Value, nil
 }
 
-func (client *Client) Put(key string, value string) error {
+func (client *Client) Put(key string, value string, txid uint64) error {
 	request := kvs.PutRequest{
 		Key:   key,
 		Value: value,
+		Txid:  txid,
 	}
 	response := kvs.PutResponse{}
 	err := client.rpcClient.Call("KVService.Put", &request, &response)
@@ -69,6 +71,7 @@ func (txn *Txn) Begin(availableServers []*Client) {
 	id := randGen.Uint64()
 	txn.id = &id
 	txn.usedServers = NewSet[*Client]()
+	txn.writeSet = make(map[string]string)
 }
 
 func (txn *Txn) Commit() error {
@@ -79,8 +82,8 @@ func (txn *Txn) Commit() error {
 	lead := true // Make first request the lead for server-side logging
 	for server := range txn.usedServers.values {
 		request := kvs.CommitRequest{
-			*txn.id,
-			lead,
+			Txid: *txn.id,
+			Lead: lead,
 		}
 		lead = false
 		response := kvs.CommitResponse{}
@@ -99,7 +102,7 @@ func (txn *Txn) Abort() error {
 
 	for server := range txn.usedServers.values {
 		request := kvs.AbortRequest{
-			*txn.id,
+			Txid: *txn.id,
 		}
 		response := kvs.AbortResponse{}
 		err := server.rpcClient.Call("KVService.Abort", &request, &response)
@@ -126,7 +129,7 @@ func (txn *Txn) Get(key string) (string, error) {
 		return cachedVal, nil
 	}
 
-	resp, err := txn.getServer(key).Get(key)
+	resp, err := txn.getServer(key).Get(key, *txn.id)
 	if err != nil {
 		_ = txn.Abort()
 		return "", fmt.Errorf("server-side error raised: %w", err)
@@ -139,7 +142,7 @@ func (txn *Txn) Put(key string, value string) error {
 	if txn.id == nil {
 		return errors.New("cannot call Put on a transaction that has not begun")
 	}
-	err := txn.getServer(key).Put(key, value)
+	err := txn.getServer(key).Put(key, value, *txn.id)
 	if err != nil {
 		_ = txn.Abort()
 		return fmt.Errorf("server-side error raised: %w", err)
@@ -178,7 +181,7 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 			txn.Begin(servers)
 			opsCompleted, err = executeTxn(&txn, workload)
 			if err != nil {
-				log.Printf("Error raised during transaction: %w", err)
+				log.Printf("Error raised during transaction: %v", err)
 				retry--
 				continue
 			}
