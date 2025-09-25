@@ -185,6 +185,10 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 				retry--
 				continue
 			}
+			err := txn.Commit()
+			if err != nil {
+				log.Printf("Error raised during commit: %v", err)
+			}
 			break // Successfully completed transaction Ops
 		}
 	}
