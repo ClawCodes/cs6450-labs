@@ -57,7 +57,7 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 	if _, found := kv.transactions.Load(request.Txid); !found {
 		kv.transactions.Store(request.Txid, make([]Operation, 0, 4)) //Transaction should only have up to 4 operation, but it can grow if needed
 	}
-
+	//log.Printf("Get by transaction: %d", request.Txid)
 	//Looks for key holders for the requests key, acquire a shared lock if there are no write locks or no locks at all
 	if keyLockHolders, found := kv.readSet.LoadOrStore(request.Key, map[uint64]*uint64{request.Txid: nil}); found {
 		if keyLockHolders, ok := keyLockHolders.(map[uint64]*uint64); ok {
@@ -76,13 +76,10 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 		}
 	}
 	var ops, _ = kv.transactions.Load(request.Txid)
-	if ops, ok := ops.([]Operation); ok {
-		ops = append(ops, Operation{
-			OpType: "GET",
-			Key:    request.Key,
-		})
-	}
-
+	ops = append(ops.([]Operation), Operation{
+		OpType: "GET",
+		Key:    request.Key,
+	})
 	kv.transactions.Store(request.Txid, ops)
 
 	if value, found := kv.mp.Load(request.Key); found {
@@ -97,11 +94,11 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	if _, found := kv.transactions.Load(request.Txid); !found {
 		kv.transactions.Store(request.Txid, make([]Operation, 0, 4))
 	}
-
+	//log.Printf("Put by transaction: %d", request.Txid)
 	//Looks for key holders for the requests key, acquire a write lock if there are no locks at all
 	if keyLockHolders, found := kv.readSet.LoadOrStore(request.Key, map[uint64]*uint64{request.Txid: &request.Txid}); found {
 		if keyLockHolders, ok := keyLockHolders.(map[uint64]*uint64); ok {
-			if _, found := keyLockHolders[request.Txid]; !found && len(keyLockHolders) > 1 { //if there is a lock holder for the key, it must belong to the same transaction or it has to abort
+			if _, found := keyLockHolders[request.Txid]; (!found && len(keyLockHolders) > 1) || len(keyLockHolders) == 0 { //if there is a lock holder for the key, it must belong to the same transaction or it has to abort
 				keyLockHolders[request.Txid] = &request.Txid //key has no read/write locks, so acquire write lock. Pointer to writer is non-nil
 			} else {
 				//if there are key holders that don't belong to this transaction, a write lock cannot be acquired
@@ -115,13 +112,11 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	}
 	//Buffer the put request, it will be completed in commit phase
 	var ops, _ = kv.transactions.Load(request.Txid)
-	if ops, ok := ops.([]Operation); ok {
-		ops = append(ops, Operation{
-			OpType: "PUT",
-			Key:    request.Key,
-			Value:  request.Value,
-		})
-	}
+	ops = append(ops.([]Operation), Operation{
+		OpType: "PUT",
+		Key:    request.Key,
+		Value:  request.Value,
+	})
 
 	kv.transactions.Store(request.Txid, ops)
 
@@ -130,9 +125,11 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 
 // Installs all put requests from the transaction, then drops related locks and removes the transaction
 func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResponse) error {
+	//log.Printf("Commit by transaction: %d", request.Txid)
 	if operations, found := kv.transactions.Load(request.Txid); found {
 		if operations, ok := operations.([]Operation); ok {
 			for _, op := range operations {
+
 				if op.OpType == "PUT" {
 					atomic.AddUint64(&kv.stats.puts, 1)
 					kv.mp.Store(op.Key, op.Value)
@@ -156,6 +153,7 @@ func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortRespons
 
 // Closes a transaction by deleting all locks it holds, then removes the transaction from the map
 func (kv *KVService) dropLocks(Txid uint64) {
+	//log.Printf("Dropping locks by transaction: %d", Txid)
 	if operations, found := kv.transactions.Load(Txid); found {
 		if operations, ok := operations.([]Operation); ok {
 			for _, op := range operations {
