@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/rpc"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -199,6 +200,205 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 	resultsCh <- opsCompleted
 }
 
+func runTransferClient(clientId int, servers []*Client, done *atomic.Bool, resultsCh chan<- uint64) {
+	opsCompleted := uint64(0)
+
+	// Initialize accounts if clientId == 0
+	if clientId == 0 {
+		initAccounts(servers)
+		log.Printf("Client %d initialized bank accounts", clientId)
+	}
+
+	transferCount := 0
+	for !done.Load() {
+		// Perform transfer every few iterations
+		if transferCount%5 == 0 {
+			err := performTransfer(clientId, servers)
+			if err != nil {
+				log.Printf("Transfer failed: %v", err)
+			} else {
+				opsCompleted++
+			}
+		}
+
+		// Check balance integrity
+		err := checkTotalBalance(servers)
+		if err != nil {
+			log.Printf("Balance check failed: %v", err)
+		} else {
+			opsCompleted++
+		}
+
+		transferCount++
+		time.Sleep(100 * time.Millisecond) // Slow down to observe behavior
+	}
+
+	fmt.Printf("Transfer client %d finished. Completed %d operations.\n", clientId, opsCompleted)
+	resultsCh <- opsCompleted
+}
+
+func initAccounts(servers []*Client) {
+	for i := 0; i < 10; i++ {
+		retry := 3
+		for retry > 0 {
+			txn := Txn{}
+			txn.Begin(servers)
+
+			key := fmt.Sprintf("account_%d", i)
+			err := txn.Put(key, "1000") // $1000 initial balance
+			if err != nil {
+				log.Printf("Error initializing account %d: %v", i, err)
+				retry--
+				continue
+			}
+
+			err = txn.Commit()
+			if err != nil {
+				log.Printf("Error committing account %d initialization: %v", i, err)
+				retry--
+				continue
+			}
+
+			break
+		}
+	}
+}
+
+func performTransfer(clientId int, servers []*Client) error {
+	src := clientId
+	dst := (clientId + 1) % 10
+
+	retry := 3
+	for retry > 0 {
+		txn := Txn{}
+		txn.Begin(servers)
+
+		// Get source balance
+		srcKey := fmt.Sprintf("account_%d", src)
+		srcBalStr, err := txn.Get(srcKey)
+		if err != nil {
+			log.Printf("Error getting source balance: %v", err)
+			retry--
+			continue
+		}
+
+		srcBal := 0
+		if srcBalStr != "" {
+			srcBal, err = strconv.Atoi(srcBalStr)
+			if err != nil {
+				log.Printf("Error parsing source balance: %v", err)
+				retry--
+				continue
+			}
+		}
+
+		// Check if sufficient funds
+		if srcBal < 100 {
+			txn.Abort()
+			return fmt.Errorf("insufficient funds in account %d: %d", src, srcBal)
+		}
+
+		// Get destination balance
+		dstKey := fmt.Sprintf("account_%d", dst)
+		dstBalStr, err := txn.Get(dstKey)
+		if err != nil {
+			log.Printf("Error getting destination balance: %v", err)
+			retry--
+			continue
+		}
+
+		dstBal := 0
+		if dstBalStr != "" {
+			dstBal, err = strconv.Atoi(dstBalStr)
+			if err != nil {
+				log.Printf("Error parsing destination balance: %v", err)
+				retry--
+				continue
+			}
+		}
+
+		// Update balances
+		err = txn.Put(srcKey, fmt.Sprintf("%d", srcBal-100))
+		if err != nil {
+			log.Printf("Error updating source balance: %v", err)
+			retry--
+			continue
+		}
+
+		err = txn.Put(dstKey, fmt.Sprintf("%d", dstBal+100))
+		if err != nil {
+			log.Printf("Error updating destination balance: %v", err)
+			retry--
+			continue
+		}
+
+		err = txn.Commit()
+		if err != nil {
+			log.Printf("Error committing transfer: %v", err)
+			retry--
+			continue
+		}
+
+		log.Printf("Transfer successful: %d -> %d ($100)", src, dst)
+		return nil
+	}
+
+	return fmt.Errorf("transfer failed after retries")
+}
+
+func checkTotalBalance(servers []*Client) error {
+	retry := 3
+	for retry > 0 {
+		txn := Txn{}
+		txn.Begin(servers)
+
+		total := 0
+		balances := make([]int, 10)
+
+		for i := 0; i < 10; i++ {
+			key := fmt.Sprintf("account_%d", i)
+			balStr, err := txn.Get(key)
+			if err != nil {
+				log.Printf("Error getting balance for account %d: %v", i, err)
+				retry--
+				continue
+			}
+
+			bal := 0
+			if balStr != "" {
+				bal, err = strconv.Atoi(balStr)
+				if err != nil {
+					log.Printf("Error parsing balance for account %d: %v", i, err)
+					retry--
+					continue
+				}
+			}
+
+			balances[i] = bal
+			total += bal
+		}
+
+		err := txn.Commit()
+		if err != nil {
+			log.Printf("Error committing balance check: %v", err)
+			retry--
+			continue
+		}
+
+		if total != 10000 {
+			log.Printf("INTEGRITY VIOLATION: Total balance is %d, expected 10000", total)
+			log.Printf("Account balances: %v", balances)
+			return fmt.Errorf("integrity violation: total=%d", total)
+		} else {
+			log.Printf("Balance check passed: total=%d, balances=%v", total, balances)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("balance check failed after retries")
+}
+
 type HostList []string
 
 func (h *HostList) String() string {
@@ -237,19 +437,44 @@ func main() {
 	resultsCh := make(chan uint64)
 
 	connections := dialHosts(hosts)
-	clientId := 0
-	go func(clientId int) {
-		workload := kvs.NewWorkload(*workload, *theta)
-		runClient(clientId, connections, &done, workload, resultsCh)
-	}(clientId)
 
-	time.Sleep(time.Duration(*secs) * time.Second)
-	done.Store(true)
+	if *workload == "xfer" {
+		// Run transfer workload with multiple clients
+		numClients := 10
+		for i := 0; i < numClients; i++ {
+			go func(clientId int) {
+				runTransferClient(clientId, connections, &done, resultsCh)
+			}(i)
+		}
 
-	opsCompleted := <-resultsCh
+		time.Sleep(time.Duration(*secs) * time.Second)
+		done.Store(true)
 
-	elapsed := time.Since(start)
+		// Collect results from all clients
+		totalOps := uint64(0)
+		for i := 0; i < numClients; i++ {
+			totalOps += <-resultsCh
+		}
 
-	opsPerSec := float64(opsCompleted) / elapsed.Seconds()
-	fmt.Printf("throughput %.2f ops/s\n", opsPerSec)
+		elapsed := time.Since(start)
+		opsPerSec := float64(totalOps) / elapsed.Seconds()
+		fmt.Printf("transfer throughput %.2f ops/s\n", opsPerSec)
+	} else {
+		// Run normal YCSB workload
+		clientId := 0
+		go func(clientId int) {
+			workload := kvs.NewWorkload(*workload, *theta)
+			runClient(clientId, connections, &done, workload, resultsCh)
+		}(clientId)
+
+		time.Sleep(time.Duration(*secs) * time.Second)
+		done.Store(true)
+
+		opsCompleted := <-resultsCh
+
+		elapsed := time.Since(start)
+
+		opsPerSec := float64(opsCompleted) / elapsed.Seconds()
+		fmt.Printf("throughput %.2f ops/s\n", opsPerSec)
+	}
 }

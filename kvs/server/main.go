@@ -208,10 +208,12 @@ func (kv *KVService) printStats() {
 	diff := stats.Sub(&prevStats)
 	deltaS := now.Sub(lastPrint).Seconds()
 
-	fmt.Printf("get/s %0.2f\nput/s %0.2f\nops/s %0.2f\n\n",
+	fmt.Printf("get/s %0.2f\nput/s %0.2f\nops/s %0.2f\ncommit/s %0.2f\nabort/s %0.2f\n\n",
 		float64(diff.gets)/deltaS,
 		float64(diff.puts)/deltaS,
-		float64(diff.gets+diff.puts)/deltaS)
+		float64(diff.gets+diff.puts)/deltaS,
+		float64(diff.commits)/deltaS,
+		float64(diff.aborts)/deltaS)
 }
 
 func main() {
