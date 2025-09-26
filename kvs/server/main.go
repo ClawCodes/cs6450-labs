@@ -41,6 +41,7 @@ type KVService struct {
 	mp           sync.Map //map[string]string
 	readSet      sync.Map //map[string]map[uint64]*uint64 //maps keys to the set of transactions that hold locks for that key
 	transactions sync.Map //map[uint64][]Operation  //maps transactions to their operations.
+	keyMutexes   sync.Map //map[string]*sync.RWMutex - per-key mutexes for fine-grained locking
 	stats        Stats
 	prevStats    Stats
 	lastPrint    time.Time
@@ -58,14 +59,19 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 		kv.transactions.Store(request.Txid, make([]Operation, 0, 4)) //Transaction should only have up to 4 operation, but it can grow if needed
 	}
 	//log.Printf("Get by transaction: %d", request.Txid)
+
+	// Use per-key mutex for thread-safe lock management
+	keyMutex := kv.getKeyMutex(request.Key)
+	keyMutex.Lock()
+
 	//Looks for key holders for the requests key, acquire a shared lock if there are no write locks or no locks at all
 	if keyLockHolders, found := kv.readSet.LoadOrStore(request.Key, map[uint64]*uint64{request.Txid: nil}); found {
 		if keyLockHolders, ok := keyLockHolders.(map[uint64]*uint64); ok {
 			for _, writeLockHolder := range keyLockHolders { //This loop may be slow, could consider separate writeSet
 				if writeLockHolder != nil {
 					//Abort: Key is write locked
+					keyMutex.Unlock() // Release before calling dropLocks to avoid deadlock
 					kv.dropLocks(request.Txid)
-					//dropLocks(request.Txid)
 					atomic.AddUint64(&kv.stats.aborts, 1)
 					return errors.New("Abort: Cannot acquire Read Lock, key is currently write locked")
 				}
@@ -75,6 +81,7 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 			}
 		}
 	}
+
 	var ops, _ = kv.transactions.Load(request.Txid)
 	ops = append(ops.([]Operation), Operation{
 		OpType: "GET",
@@ -86,6 +93,8 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 		response.Value = value.(string)
 		atomic.AddUint64(&kv.stats.gets, 1)
 	}
+
+	keyMutex.Unlock()
 	return nil
 }
 
@@ -95,6 +104,11 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 		kv.transactions.Store(request.Txid, make([]Operation, 0, 4))
 	}
 	//log.Printf("Put by transaction: %d", request.Txid)
+
+	// Use per-key mutex for thread-safe lock management
+	keyMutex := kv.getKeyMutex(request.Key)
+	keyMutex.Lock()
+
 	//Looks for key holders for the requests key, acquire a write lock if there are no locks at all
 	if keyLockHolders, found := kv.readSet.LoadOrStore(request.Key, map[uint64]*uint64{request.Txid: &request.Txid}); found {
 		if keyLockHolders, ok := keyLockHolders.(map[uint64]*uint64); ok {
@@ -103,8 +117,8 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 			} else {
 				//if there are key holders that don't belong to this transaction, a write lock cannot be acquired
 				//Abort
+				keyMutex.Unlock() // Release before calling dropLocks to avoid deadlock
 				kv.dropLocks(request.Txid)
-				//dropLocks(request.Txid)
 				atomic.AddUint64(&kv.stats.aborts, 1)
 				return errors.New("Abort: Cannot acquire Write Lock, key is currently locked")
 			}
@@ -120,6 +134,7 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 
 	kv.transactions.Store(request.Txid, ops)
 
+	keyMutex.Unlock()
 	return nil
 }
 
@@ -152,18 +167,29 @@ func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortRespons
 }
 
 // Closes a transaction by deleting all locks it holds, then removes the transaction from the map
+// getKeyMutex returns a mutex for the given key, creating one if it doesn't exist
+func (kv *KVService) getKeyMutex(key string) *sync.RWMutex {
+	if mutex, found := kv.keyMutexes.Load(key); found {
+		return mutex.(*sync.RWMutex)
+	}
+	mutex := &sync.RWMutex{}
+	actual, _ := kv.keyMutexes.LoadOrStore(key, mutex)
+	return actual.(*sync.RWMutex)
+}
+
 func (kv *KVService) dropLocks(Txid uint64) {
 	//log.Printf("Dropping locks by transaction: %d", Txid)
 	if operations, found := kv.transactions.Load(Txid); found {
 		if operations, ok := operations.([]Operation); ok {
 			for _, op := range operations {
+				keyMutex := kv.getKeyMutex(op.Key)
+				keyMutex.Lock()
 				if keyLockHolders, found := kv.readSet.Load(op.Key); found {
 					if keyLockHolders, ok := keyLockHolders.(map[uint64]*uint64); ok {
-						if _, found := keyLockHolders[Txid]; found {
-							delete(keyLockHolders, Txid)
-						}
+						delete(keyLockHolders, Txid)
 					}
 				}
+				keyMutex.Unlock()
 			}
 			kv.transactions.Delete(Txid)
 		}
