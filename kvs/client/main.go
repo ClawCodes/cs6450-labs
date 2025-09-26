@@ -174,8 +174,9 @@ func executeTxn(txn *Txn, workload *kvs.Workload) (uint64, error) {
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	opsCompleted := uint64(0)
 	var err error
-	retry := 3
+	// retry := 3
 	for !done.Load() {
+		retry := 3
 		for retry > 0 {
 			txn := Txn{}
 			txn.Begin(servers)
