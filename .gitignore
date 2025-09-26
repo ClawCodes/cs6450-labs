@@ -1,2 +1,6 @@
 # Jetbrains
 .idea/
+
+*.log
+logs/
+bin/
