@@ -1,27 +1,15 @@
-## Summary of Commits
-- `5eb512c` - try: fine-grained lock
-- `3ce517e` - try: bank transfer
-- `c3a7093` - finish: bank transfer
-- `53553c5` - update report-tput.py for stats of aborts
-- `040b041` - theta test
-- `db7b299` - stats of theta test
-
 ## Major Changes
 
 ### 1. Fine-Grained Locking Implementation (`kvs/server/main.go`)
-**Problem Fixed**: Race condition in `dropLocks()` function where concurrent map access caused crashes.
-
-**Solution**: Implemented per-key mutexes instead of global locking.
-
+**Purpose**: Implemented per-key mutexes instead of global locking.
 **Key Changes**:
 - Added `keyMutexes sync.Map` field to `KVService` struct
 - Implemented `getKeyMutex(key string) *sync.RWMutex` function
 - Updated `Get()`, `Put()`, and `dropLocks()` methods to use per-key locking
-- Fixed double unlock issues by removing problematic `defer` statements
+- Commits/s remain almost unchanged, but performance is more consistent in the theta-commit/s chart.
 
 ### 2. Bank Transfer Workload (`kvs/client/main.go`)
-**Purpose**: Implement serializable transaction testing as required by PA2.
-
+**Purpose**: Implement serializable transaction testing.
 **Implementation**:
 - Added `initAccounts()` - Initialize 10 accounts with $1000 each
 - Added `performTransfer()` - Transfer $100 between accounts with balance validation
@@ -41,10 +29,9 @@
 ### 4. Performance Analysis Tools
 **Purpose**: Analyze impact of theta (Zipfian skew) parameter on system performance.
 
-**New Files Created**:
+**New Files**:
 - `theta_test.py` - Automated testing across different theta values (0, 0.3, 0.5, 0.7, 0.9, 0.99)
 - `plot_theta_analysis.py` - Generate comprehensive performance visualization plots
-- `README_theta_analysis.md` - Documentation for theta analysis tools
 
 **Enhanced Files**:
 - `report-tput.py` - Updated to parse and report abort statistics and calculate abort rates
@@ -57,14 +44,12 @@
 **Root Cause**:
 - The efficiency metric was fundamentally flawed for distributed transactions
 - Operations (gets/puts) are counted across all servers processing requests
-- Commits are only counted on coordinator servers (with `Lead=true` flag per PA2 spec)
+- Commits are only counted on coordinator servers (with `Lead=true` flag per spec)
 - This created meaningless comparisons between distributed ops and centralized commits
 
 **Fix**:
 - Replaced "efficiency" with "Transaction Success Rate = commits/(commits+aborts)"
 - Updated `plot_theta_analysis.py` to show meaningful metrics for distributed systems
-- Added non-interactive matplotlib backend to avoid display issues
-- The original statistics counting was actually correct per PA2 requirements
 
 ## Testing Configuration
 - **Cluster**: 1 server + 3 clients for maximum contention testing
@@ -81,15 +66,11 @@
 ## Files Modified
 - `kvs/server/main.go` - Core server logic, locking, statistics
 - `kvs/client/main.go` - Bank transfer workload implementation
-- `kvs/client/helpers.go` - Sharding logic (pre-existing)
 - `report-tput.py` - Performance reporting with abort statistics
-- `.gitignore` - Exclude log files and binaries
 
 ## Files Added
 - `theta_test.py` - Automated theta parameter testing
 - `plot_theta_analysis.py` - Performance visualization
-- `README_theta_analysis.md` - Testing documentation
-- `changes.md` - This change log
 
 ## Performance Results
 Latest analysis shows meaningful metrics for distributed transaction performance:
@@ -119,11 +100,9 @@ Latest analysis shows meaningful metrics for distributed transaction performance
 
 1. **No-Wait Deadlock Avoidance Efficiency**: At theta=0.99, access becomes extremely concentrated on few hot keys. The "No Wait" strategy causes immediate aborts on conflicts, leading to faster abort/retry cycles that may be more efficient than the moderate contention at theta=0.9 where transactions might wait longer before failing.
 
-2. **Lock Contention Sweet Spot**: Extreme skew (theta=0.99) concentrates most transactions on the same small set of keys, potentially reducing "distributed contention" across many keys and making lock conflicts more predictable and faster to resolve.
+2. **Lock Contention Sweet Spot**: Extreme skew (theta=0.99) concentrates most transactions on the same small set of keys, potentially reducing scattered contention across many keys and making lock conflicts more predictable and faster to resolve.
 
-3. **Coordinator Load Distribution**: Hash-based sharding with extreme skew might concentrate transactions on fewer coordinator servers, reducing coordination overhead and enabling better CPU cache locality compared to theta=0.9's more distributed access pattern.
-
-4. **Measurement Variance**: The increases are relatively small (1.3-1.6%) and may be within statistical noise of 30-second test windows.
+3. **Measurement Variance**: The increases are relatively small (1.3-1.6%) and may be within statistical noise of 30-second test windows.
 
 This pattern suggests that the No-Wait deadlock avoidance strategy combined with fast abort/retry cycles can sometimes outperform moderate contention scenarios in distributed transaction systems.
 
