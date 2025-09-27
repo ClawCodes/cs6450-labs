@@ -4,5 +4,4 @@
 *.log
 logs/
 bin/
-changes.md
 README_theta_analysis.md
