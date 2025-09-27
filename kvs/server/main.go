@@ -99,6 +99,7 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 }
 
 func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) error {
+	atomic.AddUint64(&kv.stats.puts, 1)
 	//Add to transaction map if it hasn't been added yet
 	if _, found := kv.transactions.Load(request.Txid); !found {
 		kv.transactions.Store(request.Txid, make([]Operation, 0, 4))
@@ -146,7 +147,6 @@ func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResp
 			for _, op := range operations {
 
 				if op.OpType == "PUT" {
-					atomic.AddUint64(&kv.stats.puts, 1)
 					kv.mp.Store(op.Key, op.Value)
 				}
 			}
