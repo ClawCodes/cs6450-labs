@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import sys
 import glob
@@ -69,17 +71,17 @@ def plot_theta_analysis(csv_file):
     ax3.legend()
     ax3.set_xlim(-0.05, 1.05)
 
-    # Plot 4: Efficiency (Commits/Ops ratio) vs Theta
+    # Plot 4: Transaction Success Rate vs Theta
     for workload in df['workload'].unique():
         workload_data = df[df['workload'] == workload].sort_values('theta')
-        efficiency = (workload_data['commits_per_sec'] / workload_data['ops_per_sec']) * 100
-        ax4.plot(workload_data['theta'], efficiency,
+        success_rate = (workload_data['commits_per_sec'] / (workload_data['commits_per_sec'] + workload_data['aborts_per_sec'])) * 100
+        ax4.plot(workload_data['theta'], success_rate,
                 color=colors[workload], marker=markers[workload], linewidth=2,
                 markersize=8, label=workload)
 
     ax4.set_xlabel('Theta (Zipfian Skew Parameter)', fontweight='bold')
-    ax4.set_ylabel('Efficiency (Commits/Ops %)', fontweight='bold')
-    ax4.set_title('Transaction Efficiency vs Contention Level')
+    ax4.set_ylabel('Transaction Success Rate (%)', fontweight='bold')
+    ax4.set_title('Transaction Success Rate vs Contention Level')
     ax4.grid(True, alpha=0.3)
     ax4.legend()
     ax4.set_xlim(-0.05, 1.05)
@@ -98,7 +100,7 @@ def plot_theta_analysis(csv_file):
     print(f"High-quality plot saved as: {pdf_file}")
 
     # Show the plot
-    plt.show()
+    # plt.show()  # Commented out to avoid display issues in headless environment
 
 def create_summary_table(csv_file):
     """Create a summary table of the results"""
@@ -113,13 +115,13 @@ def create_summary_table(csv_file):
         print("-" * 50)
         workload_data = df[df['workload'] == workload].sort_values('theta')
 
-        print(f"{'Theta':<8} {'Commits/s':<12} {'Aborts/s':<12} {'Abort Rate':<12} {'Efficiency':<12}")
+        print(f"{'Theta':<8} {'Commits/s':<12} {'Aborts/s':<12} {'Abort Rate':<12} {'Success Rate':<12}")
         print("-" * 60)
 
         for _, row in workload_data.iterrows():
-            efficiency = (row['commits_per_sec'] / row['ops_per_sec']) * 100
+            success_rate = (row['commits_per_sec'] / (row['commits_per_sec'] + row['aborts_per_sec'])) * 100 if (row['commits_per_sec'] + row['aborts_per_sec']) > 0 else 100
             print(f"{row['theta']:<8.2f} {row['commits_per_sec']:<12.0f} {row['aborts_per_sec']:<12.0f} "
-                  f"{row['abort_rate']:<12.1f}% {efficiency:<12.1f}%")
+                  f"{row['abort_rate']:<12.1f}% {success_rate:<12.1f}%")
 
 def main():
     """Main function to process CSV and generate plots"""
