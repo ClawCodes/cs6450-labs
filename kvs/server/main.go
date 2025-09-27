@@ -150,7 +150,10 @@ func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResp
 					kv.mp.Store(op.Key, op.Value)
 				}
 			}
-			atomic.AddUint64(&kv.stats.commits, 1)
+			// Only count commits for the lead participant to avoid double counting
+			if request.Lead {
+				atomic.AddUint64(&kv.stats.commits, 1)
+			}
 			//need to release locks after ALL changes applied
 			kv.dropLocks(request.Txid)
 			//dropLocks(request.Txid)
