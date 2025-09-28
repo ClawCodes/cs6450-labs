@@ -34,10 +34,10 @@ func (s *Stats) Sub(prev *Stats) Stats {
 type Operation struct {
 	OpType string // "GET" or "PUT"
 	Key    string
-	Value  string // Empty for GET operations
+	Value  string // empty for GET operations
 }
 
-// LockInfo tracks lock holders for a specific key
+// tracks lock holders for a specific key
 type LockInfo struct {
 	readHolders map[uint64]bool // Set of transactions holding read locks
 	writeHolder *uint64         // Transaction holding write lock (nil if none)

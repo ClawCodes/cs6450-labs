@@ -134,11 +134,15 @@ def parse_client_log(log_path, results):
         results['balance_checks'] += len(re.findall(r'Balance check passed:', content))
 
         # Extract final balance information
-        balance_matches = re.findall(r'Balance check passed: total=(\d+), balances=\[([\d, ]+)\]', content)
+        balance_matches = re.findall(r'Balance check passed: total=(\d+), balances=\[([^\]]+)\]', content)
         if balance_matches:
             # Get the last balance check
             total, balances_str = balance_matches[-1]
-            balances = [int(x.strip()) for x in balances_str.split(',')]
+            # Handle both comma-separated and space-separated formats
+            if ',' in balances_str:
+                balances = [int(x.strip()) for x in balances_str.split(',')]
+            else:
+                balances = [int(x.strip()) for x in balances_str.split()]
             results['final_balances'] = balances
 
     except Exception as e:

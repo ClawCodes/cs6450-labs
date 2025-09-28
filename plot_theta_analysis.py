@@ -95,9 +95,9 @@ def plot_theta_analysis(csv_file):
     print(f"Plot saved as: {output_file}")
 
     # Also save as PDF for better quality
-    pdf_file = csv_file.replace('.csv', '_analysis.pdf')
-    plt.savefig(pdf_file, bbox_inches='tight')
-    print(f"High-quality plot saved as: {pdf_file}")
+    # pdf_file = csv_file.replace('.csv', '_analysis.pdf')
+    # plt.savefig(pdf_file, bbox_inches='tight')
+    # print(f"High-quality plot saved as: {pdf_file}")
 
     # Show the plot
     # plt.show()  # Commented out to avoid display issues in headless environment
