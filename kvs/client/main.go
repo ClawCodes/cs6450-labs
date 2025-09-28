@@ -304,22 +304,72 @@ func performTransfer(clientId int, servers []*Client) error {
 		txn := Txn{}
 		txn.Begin(servers)
 
-		// Get source balance
-		srcKey := fmt.Sprintf("account_%d", src)
-		srcBalStr, err := txn.Get(srcKey)
+		// Lock Ordering: Always access accounts in ascending order to prevent deadlock
+		firstAccount := src
+		secondAccount := dst
+		if src > dst {
+			firstAccount = dst
+			secondAccount = src
+		}
+
+		// Get first account balance (in order)
+		firstKey := fmt.Sprintf("account_%d", firstAccount)
+		firstBalStr, err := txn.Get(firstKey)
 		if err != nil {
-			log.Printf("Error getting source balance: %v", err)
+			log.Printf("Error getting first account balance: %v", err)
 			retry--
 			continue
 		}
 
+		// Get second account balance (in order)
+		secondKey := fmt.Sprintf("account_%d", secondAccount)
+		secondBalStr, err := txn.Get(secondKey)
+		if err != nil {
+			log.Printf("Error getting second account balance: %v", err)
+			retry--
+			continue
+		}
+
+		// Parse balances
+		srcKey := fmt.Sprintf("account_%d", src)
+		dstKey := fmt.Sprintf("account_%d", dst)
+
 		srcBal := 0
-		if srcBalStr != "" {
-			srcBal, err = strconv.Atoi(srcBalStr)
-			if err != nil {
-				log.Printf("Error parsing source balance: %v", err)
-				retry--
-				continue
+		dstBal := 0
+
+		if src == firstAccount {
+			if firstBalStr != "" {
+				srcBal, err = strconv.Atoi(firstBalStr)
+				if err != nil {
+					log.Printf("Error parsing source balance: %v", err)
+					retry--
+					continue
+				}
+			}
+			if secondBalStr != "" {
+				dstBal, err = strconv.Atoi(secondBalStr)
+				if err != nil {
+					log.Printf("Error parsing destination balance: %v", err)
+					retry--
+					continue
+				}
+			}
+		} else {
+			if secondBalStr != "" {
+				srcBal, err = strconv.Atoi(secondBalStr)
+				if err != nil {
+					log.Printf("Error parsing source balance: %v", err)
+					retry--
+					continue
+				}
+			}
+			if firstBalStr != "" {
+				dstBal, err = strconv.Atoi(firstBalStr)
+				if err != nil {
+					log.Printf("Error parsing destination balance: %v", err)
+					retry--
+					continue
+				}
 			}
 		}
 
@@ -327,25 +377,6 @@ func performTransfer(clientId int, servers []*Client) error {
 		if srcBal < 100 {
 			txn.Abort()
 			return fmt.Errorf("insufficient funds in account %d: %d", src, srcBal)
-		}
-
-		// Get destination balance
-		dstKey := fmt.Sprintf("account_%d", dst)
-		dstBalStr, err := txn.Get(dstKey)
-		if err != nil {
-			log.Printf("Error getting destination balance: %v", err)
-			retry--
-			continue
-		}
-
-		dstBal := 0
-		if dstBalStr != "" {
-			dstBal, err = strconv.Atoi(dstBalStr)
-			if err != nil {
-				log.Printf("Error parsing destination balance: %v", err)
-				retry--
-				continue
-			}
 		}
 
 		// Update balances
