@@ -207,6 +207,26 @@ func runTransferClient(clientId int, servers []*Client, done *atomic.Bool, resul
 	if clientId == 0 {
 		initAccounts(servers)
 		log.Printf("Client %d initialized bank accounts", clientId)
+
+		// Signal that initialization is complete by setting a flag
+		txn := Txn{}
+		txn.Begin(servers)
+		txn.Put("init_complete", "true")
+		txn.Commit()
+		log.Printf("Client %d signaled initialization complete", clientId)
+	}
+
+	// All clients wait for initialization to complete
+	for {
+		txn := Txn{}
+		txn.Begin(servers)
+		initFlag, err := txn.Get("init_complete")
+		txn.Commit()
+		if err == nil && initFlag == "true" {
+			log.Printf("Client %d detected initialization complete, starting transfers", clientId)
+			break
+		}
+		time.Sleep(100 * time.Millisecond) // Wait before checking again
 	}
 
 	transferCount := 0
