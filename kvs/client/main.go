@@ -132,6 +132,12 @@ func (txn *Txn) Get(key string) (string, error) {
 
 	resp, err := txn.getServer(key).Get(key, *txn.id)
 	if err != nil {
+		// Check if this is a lock conflict (retryable) or real error (fatal)
+		if strings.Contains(err.Error(), "Cannot acquire") {
+			// Lock conflict - let caller handle retry
+			return "", fmt.Errorf("lock conflict: %w", err)
+		}
+		// Real error - abort transaction
 		_ = txn.Abort()
 		return "", fmt.Errorf("server-side error raised: %w", err)
 	}
@@ -145,6 +151,12 @@ func (txn *Txn) Put(key string, value string) error {
 	}
 	err := txn.getServer(key).Put(key, value, *txn.id)
 	if err != nil {
+		// Check if this is a lock conflict (retryable) or real error (fatal)
+		if strings.Contains(err.Error(), "Cannot acquire") {
+			// Lock conflict - let caller handle retry
+			return fmt.Errorf("lock conflict: %w", err)
+		}
+		// Real error - abort transaction
 		_ = txn.Abort()
 		return fmt.Errorf("server-side error raised: %w", err)
 	}
