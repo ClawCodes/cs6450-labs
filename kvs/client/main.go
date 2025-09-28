@@ -300,6 +300,8 @@ func performTransfer(clientId int, servers []*Client) error {
 	dst := (clientId + 1) % 10
 
 	retry := 3
+	baseDelay := 10 // Base delay in milliseconds
+
 	for retry > 0 {
 		txn := Txn{}
 		txn.Begin(servers)
@@ -318,6 +320,12 @@ func performTransfer(clientId int, servers []*Client) error {
 		if err != nil {
 			log.Printf("Error getting first account balance: %v", err)
 			retry--
+			if retry > 0 {
+				// Exponential backoff with jitter
+				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
+				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
+				time.Sleep(delay + jitter)
+			}
 			continue
 		}
 
@@ -327,6 +335,12 @@ func performTransfer(clientId int, servers []*Client) error {
 		if err != nil {
 			log.Printf("Error getting second account balance: %v", err)
 			retry--
+			if retry > 0 {
+				// Exponential backoff with jitter
+				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
+				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
+				time.Sleep(delay + jitter)
+			}
 			continue
 		}
 
@@ -343,6 +357,12 @@ func performTransfer(clientId int, servers []*Client) error {
 				if err != nil {
 					log.Printf("Error parsing source balance: %v", err)
 					retry--
+					if retry > 0 {
+						// Exponential backoff with jitter
+						delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
+						jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
+						time.Sleep(delay + jitter)
+					}
 					continue
 				}
 			}
@@ -351,6 +371,12 @@ func performTransfer(clientId int, servers []*Client) error {
 				if err != nil {
 					log.Printf("Error parsing destination balance: %v", err)
 					retry--
+					if retry > 0 {
+						// Exponential backoff with jitter
+						delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
+						jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
+						time.Sleep(delay + jitter)
+					}
 					continue
 				}
 			}
@@ -360,6 +386,12 @@ func performTransfer(clientId int, servers []*Client) error {
 				if err != nil {
 					log.Printf("Error parsing source balance: %v", err)
 					retry--
+					if retry > 0 {
+						// Exponential backoff with jitter
+						delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
+						jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
+						time.Sleep(delay + jitter)
+					}
 					continue
 				}
 			}
@@ -368,6 +400,12 @@ func performTransfer(clientId int, servers []*Client) error {
 				if err != nil {
 					log.Printf("Error parsing destination balance: %v", err)
 					retry--
+					if retry > 0 {
+						// Exponential backoff with jitter
+						delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
+						jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
+						time.Sleep(delay + jitter)
+					}
 					continue
 				}
 			}
@@ -384,6 +422,12 @@ func performTransfer(clientId int, servers []*Client) error {
 		if err != nil {
 			log.Printf("Error updating source balance: %v", err)
 			retry--
+			if retry > 0 {
+				// Exponential backoff with jitter
+				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
+				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
+				time.Sleep(delay + jitter)
+			}
 			continue
 		}
 
@@ -391,6 +435,12 @@ func performTransfer(clientId int, servers []*Client) error {
 		if err != nil {
 			log.Printf("Error updating destination balance: %v", err)
 			retry--
+			if retry > 0 {
+				// Exponential backoff with jitter
+				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
+				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
+				time.Sleep(delay + jitter)
+			}
 			continue
 		}
 
@@ -398,6 +448,12 @@ func performTransfer(clientId int, servers []*Client) error {
 		if err != nil {
 			log.Printf("Error committing transfer: %v", err)
 			retry--
+			if retry > 0 {
+				// Exponential backoff with jitter
+				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
+				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
+				time.Sleep(delay + jitter)
+			}
 			continue
 		}
 
