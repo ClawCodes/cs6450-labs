@@ -258,7 +258,6 @@ func initAccounts(servers []*Client) {
 				retry--
 				continue
 			}
-
 			break
 		}
 	}
