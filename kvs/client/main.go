@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/rpc"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -98,7 +99,7 @@ func (txn *Txn) Commit() error {
 
 func (txn *Txn) Abort() error {
 	if txn.id == nil {
-		return errors.New("cannot commit a transaction that has not begun")
+		return errors.New("cannot abort a transaction that has not begun")
 	}
 
 	for server := range txn.usedServers.values {
@@ -125,15 +126,17 @@ func (txn *Txn) Get(key string) (string, error) {
 	if txn.id == nil {
 		return "", errors.New("cannot call Get on a transaction that has not begun")
 	}
-	cachedVal := txn.writeSet[key]
-	if cachedVal != "" {
+
+	// Check writeSet cache first - use exists check instead of empty string check
+	cachedVal, exists := txn.writeSet[key]
+	if exists {
 		return cachedVal, nil
 	}
 
 	resp, err := txn.getServer(key).Get(key, *txn.id)
 	if err != nil {
 		// Check if this is a lock conflict (retryable) or real error (fatal)
-		if strings.Contains(err.Error(), "Cannot acquire") {
+		if strings.Contains(err.Error(), "Cannot acquire") || strings.Contains(err.Error(), "Abort:") {
 			// Lock conflict - let caller handle retry
 			return "", fmt.Errorf("lock conflict: %w", err)
 		}
@@ -152,7 +155,7 @@ func (txn *Txn) Put(key string, value string) error {
 	err := txn.getServer(key).Put(key, value, *txn.id)
 	if err != nil {
 		// Check if this is a lock conflict (retryable) or real error (fatal)
-		if strings.Contains(err.Error(), "Cannot acquire") {
+		if strings.Contains(err.Error(), "Cannot acquire") || strings.Contains(err.Error(), "Abort:") {
 			// Lock conflict - let caller handle retry
 			return fmt.Errorf("lock conflict: %w", err)
 		}
@@ -187,7 +190,6 @@ func executeTxn(txn *Txn, workload *kvs.Workload) (uint64, error) {
 func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workload, resultsCh chan<- uint64) {
 	opsCompleted := uint64(0)
 	var err error
-	// retry := 3
 	for !done.Load() {
 		retry := 3
 		for retry > 0 {
@@ -208,7 +210,6 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 	}
 
 	fmt.Printf("Client %d finished operations.\n", id)
-
 	resultsCh <- opsCompleted
 }
 
@@ -221,10 +222,21 @@ func runTransferClient(clientId int, servers []*Client, done *atomic.Bool, resul
 		log.Printf("Client %d initialized bank accounts", clientId)
 
 		// Signal that initialization is complete by setting a flag
-		txn := Txn{}
-		txn.Begin(servers)
-		txn.Put("init_complete", "true")
-		txn.Commit()
+		for retry := 0; retry < 10; retry++ {
+			txn := Txn{}
+			txn.Begin(servers)
+			err := txn.Put("init_complete", "true")
+			if err != nil {
+				txn.Abort()
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			err = txn.Commit()
+			if err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 		log.Printf("Client %d signaled initialization complete", clientId)
 	}
 
@@ -233,10 +245,14 @@ func runTransferClient(clientId int, servers []*Client, done *atomic.Bool, resul
 		txn := Txn{}
 		txn.Begin(servers)
 		initFlag, err := txn.Get("init_complete")
-		txn.Commit()
-		if err == nil && initFlag == "true" {
-			log.Printf("Client %d detected initialization complete, starting transfers", clientId)
-			break
+		if err != nil {
+			txn.Abort()
+		} else {
+			err = txn.Commit()
+			if err == nil && initFlag == "true" {
+				log.Printf("Client %d detected initialization complete, starting transfers", clientId)
+				break
+			}
 		}
 		time.Sleep(100 * time.Millisecond) // Wait before checking again
 	}
@@ -271,26 +287,35 @@ func runTransferClient(clientId int, servers []*Client, done *atomic.Bool, resul
 
 func initAccounts(servers []*Client) {
 	for i := 0; i < 10; i++ {
-		retry := 3
-		for retry > 0 {
+		maxRetries := 10
+		for retry := 0; retry < maxRetries; retry++ {
 			txn := Txn{}
 			txn.Begin(servers)
 
 			key := fmt.Sprintf("account_%d", i)
 			err := txn.Put(key, "1000") // $1000 initial balance
 			if err != nil {
+				txn.Abort()
 				log.Printf("Error initializing account %d: %v", i, err)
-				retry--
+				if retry < maxRetries-1 {
+					backoffTime := time.Duration(50*(1<<uint(retry))) * time.Millisecond
+					jitter := time.Duration(randGen.Intn(int(backoffTime / 2)))
+					time.Sleep(backoffTime + jitter)
+				}
 				continue
 			}
 
 			err = txn.Commit()
 			if err != nil {
 				log.Printf("Error committing account %d initialization: %v", i, err)
-				retry--
+				if retry < maxRetries-1 {
+					backoffTime := time.Duration(50*(1<<uint(retry))) * time.Millisecond
+					jitter := time.Duration(randGen.Intn(int(backoffTime / 2)))
+					time.Sleep(backoffTime + jitter)
+				}
 				continue
 			}
-			break
+			break // Successfully initialized account
 		}
 	}
 }
@@ -299,160 +324,110 @@ func performTransfer(clientId int, servers []*Client) error {
 	src := clientId
 	dst := (clientId + 1) % 10
 
-	retry := 3
-	baseDelay := 10 // Base delay in milliseconds
+	maxRetries := 15
+	baseDelay := 20 // Base delay in milliseconds
 
-	for retry > 0 {
+	for retry := 0; retry < maxRetries; retry++ {
 		txn := Txn{}
 		txn.Begin(servers)
 
-		// Lock Ordering: Always access accounts in ascending order to prevent deadlock
-		firstAccount := src
-		secondAccount := dst
-		if src > dst {
-			firstAccount = dst
-			secondAccount = src
+		// Lock ordering: Always access accounts in ascending order to prevent deadlock
+		accounts := []int{src, dst}
+		sort.Ints(accounts)
+
+		// Read all account balances in order
+		balances := make(map[int]int)
+		readSuccess := true
+
+		for _, account := range accounts {
+			key := fmt.Sprintf("account_%d", account)
+			balStr, err := txn.Get(key)
+			if err != nil {
+				txn.Abort()
+				if strings.Contains(err.Error(), "lock conflict") {
+					readSuccess = false
+					break
+				}
+				return fmt.Errorf("error reading account %d: %w", account, err)
+			}
+
+			bal := 0
+			if balStr != "" {
+				bal, err = strconv.Atoi(balStr)
+				if err != nil {
+					txn.Abort()
+					return fmt.Errorf("error parsing balance for account %d: %w", account, err)
+				}
+			}
+			balances[account] = bal
 		}
 
-		// Get first account balance (in order)
-		firstKey := fmt.Sprintf("account_%d", firstAccount)
-		firstBalStr, err := txn.Get(firstKey)
-		if err != nil {
-			log.Printf("Error getting first account balance: %v", err)
-			retry--
-			if retry > 0 {
-				// Exponential backoff with jitter
-				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
-				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
-				time.Sleep(delay + jitter)
+		if !readSuccess {
+			// Apply exponential backoff for lock conflicts
+			if retry < maxRetries-1 {
+				backoffTime := time.Duration(baseDelay*(1<<uint(retry))) * time.Millisecond
+				if backoffTime > 2*time.Second {
+					backoffTime = 2 * time.Second // Cap at 2 seconds
+				}
+				jitter := time.Duration(randGen.Intn(int(backoffTime / 2)))
+				time.Sleep(backoffTime + jitter)
 			}
 			continue
-		}
-
-		// Get second account balance (in order)
-		secondKey := fmt.Sprintf("account_%d", secondAccount)
-		secondBalStr, err := txn.Get(secondKey)
-		if err != nil {
-			log.Printf("Error getting second account balance: %v", err)
-			retry--
-			if retry > 0 {
-				// Exponential backoff with jitter
-				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
-				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
-				time.Sleep(delay + jitter)
-			}
-			continue
-		}
-
-		// Parse balances
-		srcKey := fmt.Sprintf("account_%d", src)
-		dstKey := fmt.Sprintf("account_%d", dst)
-
-		srcBal := 0
-		dstBal := 0
-
-		if src == firstAccount {
-			if firstBalStr != "" {
-				srcBal, err = strconv.Atoi(firstBalStr)
-				if err != nil {
-					log.Printf("Error parsing source balance: %v", err)
-					retry--
-					if retry > 0 {
-						// Exponential backoff with jitter
-						delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
-						jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
-						time.Sleep(delay + jitter)
-					}
-					continue
-				}
-			}
-			if secondBalStr != "" {
-				dstBal, err = strconv.Atoi(secondBalStr)
-				if err != nil {
-					log.Printf("Error parsing destination balance: %v", err)
-					retry--
-					if retry > 0 {
-						// Exponential backoff with jitter
-						delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
-						jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
-						time.Sleep(delay + jitter)
-					}
-					continue
-				}
-			}
-		} else {
-			if secondBalStr != "" {
-				srcBal, err = strconv.Atoi(secondBalStr)
-				if err != nil {
-					log.Printf("Error parsing source balance: %v", err)
-					retry--
-					if retry > 0 {
-						// Exponential backoff with jitter
-						delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
-						jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
-						time.Sleep(delay + jitter)
-					}
-					continue
-				}
-			}
-			if firstBalStr != "" {
-				dstBal, err = strconv.Atoi(firstBalStr)
-				if err != nil {
-					log.Printf("Error parsing destination balance: %v", err)
-					retry--
-					if retry > 0 {
-						// Exponential backoff with jitter
-						delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
-						jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
-						time.Sleep(delay + jitter)
-					}
-					continue
-				}
-			}
 		}
 
 		// Check if sufficient funds
-		if srcBal < 100 {
+		if balances[src] < 100 {
 			txn.Abort()
-			return fmt.Errorf("insufficient funds in account %d: %d", src, srcBal)
+			return fmt.Errorf("insufficient funds in account %d: %d", src, balances[src])
 		}
 
-		// Update balances
-		err = txn.Put(srcKey, fmt.Sprintf("%d", srcBal-100))
-		if err != nil {
-			log.Printf("Error updating source balance: %v", err)
-			retry--
-			if retry > 0 {
-				// Exponential backoff with jitter
-				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
-				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
-				time.Sleep(delay + jitter)
+		// Update balances in the same order
+		updateSuccess := true
+		for _, account := range accounts {
+			key := fmt.Sprintf("account_%d", account)
+			var newBalance int
+
+			if account == src {
+				newBalance = balances[account] - 100
+			} else { // account == dst
+				newBalance = balances[account] + 100
+			}
+
+			err := txn.Put(key, fmt.Sprintf("%d", newBalance))
+			if err != nil {
+				txn.Abort()
+				if strings.Contains(err.Error(), "lock conflict") {
+					updateSuccess = false
+					break
+				}
+				return fmt.Errorf("error updating account %d: %w", account, err)
+			}
+		}
+
+		if !updateSuccess {
+			// Apply exponential backoff for lock conflicts
+			if retry < maxRetries-1 {
+				backoffTime := time.Duration(baseDelay*(1<<uint(retry))) * time.Millisecond
+				if backoffTime > 2*time.Second {
+					backoffTime = 2 * time.Second // Cap at 2 seconds
+				}
+				jitter := time.Duration(randGen.Intn(int(backoffTime / 2)))
+				time.Sleep(backoffTime + jitter)
 			}
 			continue
 		}
 
-		err = txn.Put(dstKey, fmt.Sprintf("%d", dstBal+100))
-		if err != nil {
-			log.Printf("Error updating destination balance: %v", err)
-			retry--
-			if retry > 0 {
-				// Exponential backoff with jitter
-				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
-				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
-				time.Sleep(delay + jitter)
-			}
-			continue
-		}
-
-		err = txn.Commit()
+		err := txn.Commit()
 		if err != nil {
 			log.Printf("Error committing transfer: %v", err)
-			retry--
-			if retry > 0 {
-				// Exponential backoff with jitter
-				delay := time.Duration(baseDelay*(1<<(3-retry))) * time.Millisecond
-				jitter := time.Duration(randGen.Intn(int(delay/2))) * time.Millisecond
-				time.Sleep(delay + jitter)
+			// Apply exponential backoff
+			if retry < maxRetries-1 {
+				backoffTime := time.Duration(baseDelay*(1<<uint(retry))) * time.Millisecond
+				if backoffTime > 2*time.Second {
+					backoffTime = 2 * time.Second // Cap at 2 seconds
+				}
+				jitter := time.Duration(randGen.Intn(int(backoffTime / 2)))
+				time.Sleep(backoffTime + jitter)
 			}
 			continue
 		}
@@ -461,34 +436,39 @@ func performTransfer(clientId int, servers []*Client) error {
 		return nil
 	}
 
-	return fmt.Errorf("transfer failed after retries")
+	return fmt.Errorf("transfer failed after %d retries", maxRetries)
 }
 
 func checkTotalBalance(servers []*Client) error {
-	retry := 3
-	for retry > 0 {
+	maxRetries := 10
+	for retry := 0; retry < maxRetries; retry++ {
 		txn := Txn{}
 		txn.Begin(servers)
 
 		total := 0
 		balances := make([]int, 10)
+		readSuccess := true
 
 		for i := 0; i < 10; i++ {
 			key := fmt.Sprintf("account_%d", i)
 			balStr, err := txn.Get(key)
 			if err != nil {
+				txn.Abort()
+				if strings.Contains(err.Error(), "lock conflict") {
+					readSuccess = false
+					break
+				}
 				log.Printf("Error getting balance for account %d: %v", i, err)
-				retry--
-				continue
+				return err
 			}
 
 			bal := 0
 			if balStr != "" {
 				bal, err = strconv.Atoi(balStr)
 				if err != nil {
+					txn.Abort()
 					log.Printf("Error parsing balance for account %d: %v", i, err)
-					retry--
-					continue
+					return err
 				}
 			}
 
@@ -496,10 +476,21 @@ func checkTotalBalance(servers []*Client) error {
 			total += bal
 		}
 
+		if !readSuccess {
+			// Apply exponential backoff
+			backoffTime := time.Duration(50*(1<<uint(retry))) * time.Millisecond
+			jitter := time.Duration(randGen.Intn(int(backoffTime / 2)))
+			time.Sleep(backoffTime + jitter)
+			continue
+		}
+
 		err := txn.Commit()
 		if err != nil {
 			log.Printf("Error committing balance check: %v", err)
-			retry--
+			// Apply exponential backoff
+			backoffTime := time.Duration(50*(1<<uint(retry))) * time.Millisecond
+			jitter := time.Duration(randGen.Intn(int(backoffTime / 2)))
+			time.Sleep(backoffTime + jitter)
 			continue
 		}
 
