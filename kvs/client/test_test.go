@@ -66,8 +66,10 @@ func TestPutGet(t *testing.T) {
 	got, err = getTx(clients, "test")
 	assert.Nil(t, err)
 	assert.Equal(t, "value", got)
-
+	err = putTx(clients, "test", "value2")
+	assert.Nil(t, err)
 	// Test multiple put/get cycles
+	
 	for i := 0; i < 1024; i++ {
 		is := fmt.Sprintf("%v", i)
 		err := putTx(clients, is, is)
@@ -77,9 +79,9 @@ func TestPutGet(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, is, r)
 	}
-
+	
 	// Test batch puts then batch gets
-	for i := 0; i < 1024; i++ {
+	for i := 0; i < 1024; i++ { 
 		is := fmt.Sprintf("%v", i)
 		err := putTx(clients, is, is)
 		assert.Nil(t, err)
@@ -91,6 +93,7 @@ func TestPutGet(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, is, r)
 	}
+	
 }
 
 func TestWWConflict(t *testing.T) {
