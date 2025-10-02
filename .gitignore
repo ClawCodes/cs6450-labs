@@ -1,2 +1,7 @@
 # Jetbrains
 .idea/
+
+*.log
+logs/
+bin/
+README_theta_analysis.md
