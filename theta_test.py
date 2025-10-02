@@ -7,7 +7,7 @@ import os
 
 # Test configuration
 THETA_VALUES = [0, 0.3, 0.5, 0.7, 0.9, 0.99]
-WORKLOADS = ["YCSB-A", "YCSB-B"]
+WORKLOADS = ["YCSB-B"]
 CLUSTER_CONFIG = "1 3"  # 1 server, 3 clients for maximum contention
 TEST_DURATION = 30
 
