@@ -127,9 +127,8 @@ func (txn *Txn) Get(key string) (string, error) {
 		return "", errors.New("cannot call Get on a transaction that has not begun")
 	}
 
-	// Check writeSet cache first - use exists check instead of empty string check
 	cachedVal, exists := txn.writeSet[key]
-	if exists {
+	if exists { // Can't use cachedVal != "" because if the Put value is "", it would be mistakenly identified as non-existent
 		return cachedVal, nil
 	}
 
@@ -153,13 +152,10 @@ func (txn *Txn) Put(key string, value string) error {
 		return errors.New("cannot call Put on a transaction that has not begun")
 	}
 	err := txn.getServer(key).Put(key, value, *txn.id)
-	if err != nil {
-		// Check if this is a lock conflict (retryable) or real error (fatal)
+	if err != nil { // Same logic as *Txn.Get
 		if strings.Contains(err.Error(), "Cannot acquire") || strings.Contains(err.Error(), "Abort:") {
-			// Lock conflict - let caller handle retry
 			return fmt.Errorf("lock conflict: %w", err)
 		}
-		// Real error - abort transaction
 		_ = txn.Abort()
 		return fmt.Errorf("server-side error raised: %w", err)
 	}
@@ -210,78 +206,6 @@ func runClient(id int, servers []*Client, done *atomic.Bool, workload *kvs.Workl
 	}
 
 	fmt.Printf("Client %d finished operations.\n", id)
-	resultsCh <- opsCompleted
-}
-
-func runTransferClient(clientId int, servers []*Client, done *atomic.Bool, resultsCh chan<- uint64) {
-	opsCompleted := uint64(0)
-
-	// Initialize accounts if clientId == 0
-	if clientId == 0 {
-		initAccounts(servers)
-		log.Printf("Client %d initialized bank accounts", clientId)
-
-		// Signal that initialization is complete by setting a flag
-		for retry := 0; retry < 10; retry++ {
-			txn := Txn{}
-			txn.Begin(servers)
-			err := txn.Put("init_complete", "true")
-			if err != nil {
-				txn.Abort()
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-			err = txn.Commit()
-			if err == nil {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		log.Printf("Client %d signaled initialization complete", clientId)
-	}
-
-	// All clients wait for initialization to complete
-	for {
-		txn := Txn{}
-		txn.Begin(servers)
-		initFlag, err := txn.Get("init_complete")
-		if err != nil {
-			txn.Abort()
-		} else {
-			err = txn.Commit()
-			if err == nil && initFlag == "true" {
-				log.Printf("Client %d detected initialization complete, starting transfers", clientId)
-				break
-			}
-		}
-		time.Sleep(100 * time.Millisecond) // Wait before checking again
-	}
-
-	transferCount := 0
-	for !done.Load() {
-		// Perform transfer every few iterations
-		if transferCount%5 == 0 {
-			err := performTransfer(clientId, servers)
-			if err != nil {
-				log.Printf("Transfer failed: %v", err)
-			} else {
-				opsCompleted++
-			}
-		}
-
-		// Check balance integrity
-		err := checkTotalBalance(servers)
-		if err != nil {
-			log.Printf("Balance check failed: %v", err)
-		} else {
-			opsCompleted++
-		}
-
-		transferCount++
-		time.Sleep(100 * time.Millisecond) // Slow down to observe behavior
-	}
-
-	fmt.Printf("Transfer client %d finished. Completed %d operations.\n", clientId, opsCompleted)
 	resultsCh <- opsCompleted
 }
 
@@ -507,6 +431,80 @@ func checkTotalBalance(servers []*Client) error {
 
 	return fmt.Errorf("balance check failed after retries")
 }
+
+func runTransferClient(clientId int, servers []*Client, done *atomic.Bool, resultsCh chan<- uint64) {
+	opsCompleted := uint64(0)
+
+	// Initialize accounts if clientId == 0
+	if clientId == 0 {
+		initAccounts(servers)
+		log.Printf("Client %d initialized bank accounts", clientId)
+
+		// Signal that initialization is complete by setting a flag
+		for retry := 0; retry < 10; retry++ {
+			txn := Txn{}
+			txn.Begin(servers)
+			err := txn.Put("init_complete", "true")
+			if err != nil {
+				txn.Abort()
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			err = txn.Commit()
+			if err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		log.Printf("Client %d signaled initialization complete", clientId)
+	}
+
+	// All clients wait for initialization to complete
+	for {
+		txn := Txn{}
+		txn.Begin(servers)
+		initFlag, err := txn.Get("init_complete")
+		if err != nil {
+			txn.Abort()
+		} else {
+			err = txn.Commit()
+			if err == nil && initFlag == "true" {
+				log.Printf("Client %d detected initialization complete, starting transfers", clientId)
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond) // Wait before checking again
+	}
+
+	transferCount := 0
+	for !done.Load() {
+		// Perform transfer every few iterations
+		if transferCount%5 == 0 {
+			err := performTransfer(clientId, servers)
+			if err != nil {
+				log.Printf("Transfer failed: %v", err)
+			} else {
+				opsCompleted++
+			}
+		}
+
+		// Check balance integrity
+		err := checkTotalBalance(servers)
+		if err != nil {
+			log.Printf("Balance check failed: %v", err)
+		} else {
+			opsCompleted++
+		}
+
+		transferCount++
+		time.Sleep(100 * time.Millisecond) // Slow down to observe behavior
+	}
+
+	fmt.Printf("Transfer client %d finished. Completed %d operations.\n", clientId, opsCompleted)
+	resultsCh <- opsCompleted
+}
+
+
 
 type HostList []string
 

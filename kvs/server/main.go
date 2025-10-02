@@ -149,7 +149,7 @@ func (kv *KVService) Get(request *kvs.GetRequest, response *kvs.GetResponse) err
 
 	// Add to transaction map if it hasn't been added yet
 	if _, found := kv.transactions.Load(request.Txid); !found {
-		kv.transactions.Store(request.Txid, make([]Operation, 0, 4))
+		kv.transactions.Store(request.Txid, make([]Operation, 0, 4)) //Transaction should only have up to 4 operation, but it can grow if needed
 	}
 
 	// Try to acquire read lock
@@ -184,12 +184,10 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 	kv.Lock()
 	defer kv.Unlock()
 
-	// Add to transaction map if it hasn't been added yet
 	if _, found := kv.transactions.Load(request.Txid); !found {
 		kv.transactions.Store(request.Txid, make([]Operation, 0, 4))
 	}
 
-	// Try to acquire write lock
 	err := kv.acquireWriteLock(request.Key, request.Txid)
 	if err != nil {
 		kv.releaseLocks(request.Txid)
@@ -197,7 +195,7 @@ func (kv *KVService) Put(request *kvs.PutRequest, response *kvs.PutResponse) err
 		return err
 	}
 
-	// Add operation to transaction log (buffered, will be applied on commit)
+	// Buffer the put request, it will be completed in commit phase
 	ops, _ := kv.transactions.Load(request.Txid)
 	operations := ops.([]Operation)
 	operations = append(operations, Operation{
@@ -218,22 +216,19 @@ func (kv *KVService) Commit(request *kvs.CommitRequest, response *kvs.CommitResp
 
 	if operations, found := kv.transactions.Load(request.Txid); found {
 		if ops, ok := operations.([]Operation); ok {
-			// Apply all PUT operations
-			for _, op := range ops {
-				if op.OpType == "PUT" {
+			for _, op := range ops { // Apply all PUT operations
+				if op.OpType == "PUT" { // skip "GET"
 					kv.mp.Store(op.Key, op.Value)
 				}
 			}
 
-			// Only count commits for the lead participant to avoid double counting
-			if request.Lead {
+			if request.Lead { // Only count commits for the lead participant to avoid double counting
 				atomic.AddUint64(&kv.stats.commits, 1)
 			}
 		}
 	}
 
-	// Release all locks held by this transaction
-	kv.releaseLocks(request.Txid)
+	kv.releaseLocks(request.Txid)	// Release all locks held by this txid
 	return nil
 }
 
@@ -248,14 +243,14 @@ func (kv *KVService) Abort(request *kvs.AbortRequest, response *kvs.AbortRespons
 }
 
 func (kv *KVService) printStats() {
-	kv.RLock()
+	kv.Lock()	// In case we want to change it to concurrent multiple goroutines
 	stats := kv.stats
 	prevStats := kv.prevStats
 	kv.prevStats = stats
 	now := time.Now()
 	lastPrint := kv.lastPrint
 	kv.lastPrint = now
-	kv.RUnlock()
+	kv.Unlock()
 
 	diff := stats.Sub(&prevStats)
 	deltaS := now.Sub(lastPrint).Seconds()
