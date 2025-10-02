@@ -23,16 +23,11 @@ python3 plot_theta_analysis.py
 ## What It Does
 
 - Tests theta values: 0, 0.3, 0.5, 0.7, 0.9, 0.99
-- Tests YCSB-A (50% writes) and YCSB-B (5% writes)
-- Runs 30 seconds per test (~5 minutes total)
+- Tests YCSB-A (50% writes, optional, will generate more aborts) and YCSB-B (5% writes)
+- Runs 30 seconds per test (3(only YCSB-B) ~ 5(YCSB-A and YCSB-B) minutes total)
 - Saves results to CSV and generates plots
 
 ## Output Files
 
 - `theta_analysis_<timestamp>.csv` - Raw data
 - `theta_analysis_<timestamp>_analysis.png` - Charts
-
-## Requirements
-
-- Must run from project root directory
-- Requires `run-cluster.sh` and `report-tput.py`

@@ -8,31 +8,24 @@ import os
 # Test configuration
 THETA_VALUES = [0, 0.3, 0.5, 0.7, 0.9, 0.99]
 WORKLOADS = ["YCSB-B"]
+# WORKLOADS = ["YCSB-A", "YCSB-B"]  // YCSB-A will generate more aborts, which can be used for comparison
 CLUSTER_CONFIG = "1 3"  # 1 server, 3 clients for maximum contention
 TEST_DURATION = 30
 
 def run_test(workload, theta):
-    """Run a single test and return results"""
     print(f"Testing {workload} with theta={theta}...")
-
-    # Run cluster test
     cmd = f"./run-cluster.sh {CLUSTER_CONFIG} \"\" \"-workload {workload} -theta {theta} -secs {TEST_DURATION}\""
 
     try:
-        # Run the test
         subprocess.run(cmd, shell=True, check=True, capture_output=False)
-
-        # Wait a moment for logs to be written
         time.sleep(2)
 
-        # Parse results using report-tput.py
         result = subprocess.run("python3 report-tput.py", shell=True, capture_output=True, text=True)
 
         if result.returncode != 0:
             print(f"Error running report-tput.py: {result.stderr}")
             return None
 
-        # Parse the output
         lines = result.stdout.strip().split('\n')
         ops_total = 0
         commit_total = 0
@@ -81,7 +74,6 @@ def main():
             else:
                 print(f"  theta={theta}: FAILED")
 
-            # Brief pause between tests
             time.sleep(1)
 
     # Save results to CSV
