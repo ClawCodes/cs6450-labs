@@ -14,6 +14,7 @@ pip3 install matplotlib pandas numpy
 chmod +x theta_test.py
 python3 theta_test.py
 ```
+The assignment only requires YCSB-B, but YCSB-A will have a higher abort rate, so you can modify WORKLOADS in theta_test.py for comparison.
 
 ### 3. Generate Plots
 ```bash
