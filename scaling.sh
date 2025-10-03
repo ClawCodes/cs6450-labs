@@ -27,6 +27,11 @@ WORKLOAD="YCSB-A"
 THETA="0.5"
 SECS="30"
 
+# Thread experiment
+CLIENT_THREADS=1
+THREAD_STEP=1
+IS_THREAD_EXP=0
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --workload)
@@ -41,6 +46,15 @@ while [[ $# -gt 0 ]]; do
             SECS="$2"
             shift 2
             ;;
+        --client-threads)
+          CLIENT_THREADS="$2"
+          IS_THREAD_EXP=1
+          shift 2
+          ;;
+        --thread-step)
+          THREAD_STEP="$2"
+          shift 2
+          ;;
         *)
             echo "Unknown argument: $1"
             echo "Usage: $0 [--workload WORKLOAD] [--theta THETA] [--secs SECS]"
@@ -56,55 +70,87 @@ TS_RUN=$(date +%s)
 CSV="$OUT_DIR/scale_results_${TS_RUN}.csv"
 # CSV headers compatible with plot_theta_analysis.py plus metadata
 # Columns: workload,theta,commits_per_sec,aborts_per_sec,abort_rate,ops_per_sec,servers,clients,ts,log_dir
-echo "workload,theta,commits_per_sec,aborts_per_sec,abort_rate,ops_per_sec,servers,clients,num_nodes,ts,log_dir" > "$CSV"
+
+function addCSVHeader(){
+  echo "workload,theta,commits_per_sec,aborts_per_sec,abort_rate,ops_per_sec,servers,clients,num_nodes,ts,log_dir" > "$1"
+}
+
+addCSVHeader "$CSV"
 
 echo "Running scaling experiments for totals 2 -> $AVAILABLE_COUNT"
 
-# Iterate over total node counts
-for total in $(seq 2 "$AVAILABLE_COUNT"); do
-  for servers in $(seq 1 $((total - 1))); do
-    clients=$((total - servers))
-    echo "=== total=$total servers=$servers clients=$clients ==="
 
-    RUN_CMD="$RUN_SCRIPT $servers $clients \"\" \"-workload $WORKLOAD -theta $THETA -secs $SECS\""
+# shellcheck disable=SC2120
+function writeCSVRow() {
+        local FILENAME="${1:-$CSV}"
+        # Get the log directory that run-cluster.sh created (it updates logs/latest)
+        LOG_DIR="$(readlink -f "$LOG/latest" 2>/dev/null)"
 
-    # Execute the run command and capture all output. Continue even if a run fails.
-    OUTFILE=$(mktemp /tmp/scale_run_XXXXXX.out)
-    echo "running experiment..."
-    bash -c "$RUN_CMD" > "$OUTFILE" 2>&1
-    echo "extracting data from logs..."
+        # Run the report script to compute totals (it reads logs/latest)
+        REPORT=$(python3 "$REPORT_SCRIPT" 2>/dev/null)
 
-    # Get the log directory that run-cluster.sh created (it updates logs/latest)
-    LOG_DIR="$(readlink -f "$LOG/latest" 2>/dev/null)"
+        # Parse totals from REPORT. Select the summary "total ..." lines so we
+        # capture the aggregated numeric values (not the per-node "median" tokens).
+        total_ops=$(echo "$REPORT" | awk '/^total .*op\/s/ {print $2; exit}')
+        total_commits=$(echo "$REPORT" | awk '/^total .*commit\/s/ {print $2; exit}')
+        total_aborts=$(echo "$REPORT" | awk '/^total .*abort\/s/ {print $2; exit}')
+        abort_rate=$(echo "$REPORT" | awk '/abort rate/ {print $3; exit}' | tr -d '%')
 
-    # Run the report script to compute totals (it reads logs/latest)
-    REPORT=$(python3 "$REPORT_SCRIPT" 2>/dev/null)
+        total_ops=${total_ops:-0}
+        total_commits=${total_commits:-0}
+        total_aborts=${total_aborts:-0}
+        abort_rate=${abort_rate:-0}
 
-    # Parse totals from REPORT. Select the summary "total ..." lines so we
-    # capture the aggregated numeric values (not the per-node "median" tokens).
-    total_ops=$(echo "$REPORT" | awk '/^total .*op\/s/ {print $2; exit}')
-    total_commits=$(echo "$REPORT" | awk '/^total .*commit\/s/ {print $2; exit}')
-    total_aborts=$(echo "$REPORT" | awk '/^total .*abort\/s/ {print $2; exit}')
-    abort_rate=$(echo "$REPORT" | awk '/abort rate/ {print $3; exit}' | tr -d '%')
+        ts_field="$(basename "$LOG_DIR" 2>/dev/null || date +%s)"
 
-    total_ops=${total_ops:-0}
-    total_commits=${total_commits:-0}
-    total_aborts=${total_aborts:-0}
-    abort_rate=${abort_rate:-0}
+        # Provide fields compatible with plot_theta_analysis.py
+        workload="$WORKLOAD"
+        theta="$THETA"
+        commits_per_sec="$total_commits"
+        aborts_per_sec="$total_aborts"
+        ops_per_sec="$total_ops"
+        echo "$workload,$theta,$commits_per_sec,$aborts_per_sec,$abort_rate,$ops_per_sec,$servers,$clients,$total,$ts_field,$LOG_DIR" >> "$FILENAME"
+}
 
-    ts_field="$(basename "$LOG_DIR" 2>/dev/null || date +%s)"
+function runThreadingExp() {
+  clients=$1
+  servers=$2
+  echo "Running Client thread Experiment - Max num threads: $CLIENT_THREADS, Step: $CLIENT_THREADS"
+    for total in $(seq 2 "$THREAD_STEP" "$CLIENT_THREADS"); do
+            RUN_CMD="$RUN_SCRIPT $servers $clients \"\" \"-workload $WORKLOAD -theta $THETA -secs $SECS\ --clientThreads"
+            #TODO: Finish writing csv writing for scaling exp
+            echo "running experiment - $total threads"
+            bash -c "$RUN_CMD"
+            echo "extracting data from logs..."
 
-    # Provide fields compatible with plot_theta_analysis.py
-    workload="$WORKLOAD"
-    theta="$THETA"
-    commits_per_sec="$total_commits"
-    aborts_per_sec="$total_aborts"
-    ops_per_sec="$total_ops"
-    echo "$workload,$theta,$commits_per_sec,$aborts_per_sec,$abort_rate,$ops_per_sec,$servers,$clients,$total,$ts_field,$LOG_DIR" >> "$CSV"
+            writeCSVRow
+      done
+    echo "Client thread experiment complete."
+}
 
-    # small pause so timestamps/dirs differ and to give cluster a clean window
-    sleep 1
+  # Iterate over total node counts
+  for total in $(seq 2 "$AVAILABLE_COUNT"); do
+    for servers in $(seq 1 $((total - 1))); do
+      clients=$((total - servers))
+      echo "=== total=$total servers=$servers clients=$clients ==="
+
+      if [[ $IS_THREAD_EXP -eq 1 ]]; then # run scaling exp with thread scaling
+        runThreadingExp clients servers
+      else
+        RUN_CMD="$RUN_SCRIPT $servers $clients \"\" \"-workload $WORKLOAD -theta $THETA -secs $SECS\""
+
+        # Execute the run command and capture all output. Continue even if a run fails.
+        OUTFILE=$(mktemp /tmp/scale_run_XXXXXX.out)
+        echo "running experiment..."
+        bash -c "$RUN_CMD" > "$OUTFILE" 2>&1
+        echo "extracting data from logs..."
+
+        writeCSVRow
+
+      fi
+      # small pause so timestamps/dirs differ and to give cluster a clean window
+      sleep 1
+    done
   done
-done
 
-echo "Results in $CSV$"
+  echo "Results in $CSV$"
