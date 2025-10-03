@@ -56,7 +56,7 @@ TS_RUN=$(date +%s)
 CSV="$OUT_DIR/scale_results_${TS_RUN}.csv"
 # CSV headers compatible with plot_theta_analysis.py plus metadata
 # Columns: workload,theta,commits_per_sec,aborts_per_sec,abort_rate,ops_per_sec,servers,clients,ts,log_dir
-echo "workload,theta,commits_per_sec,aborts_per_sec,abort_rate,ops_per_sec,servers,clients,ts,log_dir" > "$CSV"
+echo "workload,theta,commits_per_sec,aborts_per_sec,abort_rate,ops_per_sec,servers,clients,num_nodes,ts,log_dir" > "$CSV"
 
 echo "Running scaling experiments for totals 2 -> $AVAILABLE_COUNT"
 
@@ -71,14 +71,14 @@ for total in $(seq 2 "$AVAILABLE_COUNT"); do
     # Execute the run command and capture all output. Continue even if a run fails.
     OUTFILE=$(mktemp /tmp/scale_run_XXXXXX.out)
     echo "running experiment..."
-    bash -c "$RUN_CMD" > "$OUTFILE" 2>&1 || true
+    bash -c "$RUN_CMD" > "$OUTFILE" 2>&1
     echo "extracting data from logs..."
 
     # Get the log directory that run-cluster.sh created (it updates logs/latest)
-    LOG_DIR="$(readlink -f "$LOG/latest" 2>/dev/null || true)"
+    LOG_DIR="$(readlink -f "$LOG/latest" 2>/dev/null)"
 
     # Run the report script to compute totals (it reads logs/latest)
-    REPORT=$(python3 "$REPORT_SCRIPT" 2>/dev/null || true)
+    REPORT=$(python3 "$REPORT_SCRIPT" 2>/dev/null)
 
     # Parse totals from REPORT. Select the summary "total ..." lines so we
     # capture the aggregated numeric values (not the per-node "median" tokens).
@@ -100,8 +100,7 @@ for total in $(seq 2 "$AVAILABLE_COUNT"); do
     commits_per_sec="$total_commits"
     aborts_per_sec="$total_aborts"
     ops_per_sec="$total_ops"
-
-    echo "$workload,$theta,$commits_per_sec,$aborts_per_sec,$abort_rate,$ops_per_sec,$servers,$clients,$ts_field,$LOG_DIR" >> "$CSV"
+    echo "$workload,$theta,$commits_per_sec,$aborts_per_sec,$abort_rate,$ops_per_sec,$servers,$clients,$total,$ts_field,$LOG_DIR" >> "$CSV"
 
     # small pause so timestamps/dirs differ and to give cluster a clean window
     sleep 1
