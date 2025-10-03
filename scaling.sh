@@ -82,12 +82,13 @@ function addCSVHeader(){
 
 addCSVHeader "$CSV"
 
-echo "Running scaling experiments for totals 2 -> $AVAILABLE_COUNT"
+echo "Running scaling experiments for totals 1 -> $AVAILABLE_COUNT"
 
 # shellcheck disable=SC2120
 function writeCSVRow() {
   local FILENAME="${1:-$CSV}"
   local threadCount="${2:-1}" # default thread count is 1
+  local total=$((clients + servers)) # note, parent scope is expected to have clients and servers set
   # Get the log directory that run-cluster.sh created (it updates logs/latest)
   LOG_DIR="$(readlink -f "$LOG/latest" 2>/dev/null)"
 
@@ -150,19 +151,17 @@ function runNodeScalingExp(){
 }
 
 if [[ $NUM_SERVERS -gt 0 ]]; then # Run with fixed number of client and servers
-  NUM_CLIENTS=$AVAILABLE_COUNT-$NUM_SERVERS
+  NUM_CLIENTS=$((AVAILABLE_COUNT - NUM_SERVERS))
   if [[ $IS_THREAD_EXP -eq 1 ]]; then
     runThreadingExp "$NUM_CLIENTS" "$NUM_SERVERS"
   else
     runNodeScalingExp "$NUM_CLIENTS" "$NUM_SERVERS"
   fi
 else
-  # Iterate over total node counts
-  for total in $(seq 2 "$AVAILABLE_COUNT"); do
-    for servers in $(seq 1 $((total - 1))); do
-      clients=$((total - servers))
-      echo "=== total=$total servers=$servers clients=$clients ==="
-
+  # Iterate over node counts
+  for ((servers=1; servers<AVAILABLE_COUNT; servers++)); do
+      clients=$((AVAILABLE_COUNT - servers))
+      echo "=== servers=$servers clients=$clients ==="
       if [[ $IS_THREAD_EXP -eq 1 ]]; then # run scaling exp with thread scaling
         runThreadingExp "$clients" "$servers"
       else
@@ -170,6 +169,5 @@ else
       fi
       # small pause so timestamps/dirs differ and to give cluster a clean window
       sleep 1
-    done
   done
 fi

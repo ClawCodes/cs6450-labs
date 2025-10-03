@@ -78,39 +78,39 @@ def plot_single_exp(filename: str, x_col: str, y_col: str, x_label: str, y_label
 
 
 def main():
-    exp_4_nodes_dir = ROOT.joinpath('node_scaling_exp_4_nodes')
+    exp_8_nodes_dir = ROOT.joinpath('node_scaling_exp_8_nodes')
     save_dir = ROOT.joinpath('charts and stats/')
 
     os.makedirs(save_dir, exist_ok=True)
 
     # Throughput
-    plot_node_scaling_exp(*exp_4_nodes_dir.glob('*.csv'),
+    plot_node_scaling_exp(*exp_8_nodes_dir.glob('*.csv'),
                           x_col='thread_count',
                           y_col='ops_per_sec',
                           x_label='Number of Concurrent Goroutines',
                           y_label='Throughput (ops/s)',
                           title='Throughput under client-side goroutine scaling across varying client-node combinations',
-                          outfile=save_dir.joinpath('throughput_thread_scaling_4_nodes.png'),
+                          outfile=save_dir.joinpath('throughput_thread_scaling_8_nodes.png'),
                           annotate=False)
 
     # Abort
-    plot_node_scaling_exp(*exp_4_nodes_dir.glob('*.csv'),
+    plot_node_scaling_exp(*exp_8_nodes_dir.glob('*.csv'),
                           x_col='thread_count',
                           y_col='aborts_per_sec',
                           x_label='Number of Concurrent Goroutines',
                           y_label='Aborts (abort count/s)',
                           title='Transaction Aborts under client-side goroutine scaling across varying client-node combinations',
-                          outfile=save_dir.joinpath('aborts_thread_scaling_4_nodes.png'),
+                          outfile=save_dir.joinpath('aborts_thread_scaling_8_nodes.png'),
                           annotate=False)
 
     #Commits
-    plot_node_scaling_exp(*exp_4_nodes_dir.glob('*.csv'),
+    plot_node_scaling_exp(*exp_8_nodes_dir.glob('*.csv'),
                           x_col='thread_count',
                           y_col='commits_per_sec',
                           x_label='Number of Concurrent Goroutines',
                           y_label='Commits (commit count/s)',
                           title='Transaction Commits under client-side goroutine scaling across varying client-node combinations',
-                          outfile=save_dir.joinpath('commits_thread_scaling_4_nodes.png'),
+                          outfile=save_dir.joinpath('commits_thread_scaling_8_nodes.png'),
                           annotate=False)
 
 if __name__ == '__main__':
