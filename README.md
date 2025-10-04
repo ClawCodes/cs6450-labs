@@ -23,8 +23,8 @@ Cluster size impact analysis for YCSB-A workload with theta=0.5, 10 second durat
 
 #### **Figure 2b:**
 <p align=center>
-<img src="./charts and stats/commits_thread_scaling_4_nodes.png" width="500"/><img src="./charts and stats/throughput_thread_scaling_4_nodes.png" width="500"/><br><img src="./charts and stats/aborts_thread_scaling_4_nodes.png" width="500"/><br>
-Number of client threads impact analysis for ...
+<img src="./charts and stats/transactions-client-thread-scaling.png" width="500"/><img src="./charts and stats/operations-client-thread-scaling.png" width="500"/><br><img src="./charts and stats/aborts-client-thread-scaling.png" width="500"/><br>
+Number of client threads impact analysis for YCSB-A workload with theta=0.5 across varying client-server combinations in an 8 node cluster
 </p>
 
 
