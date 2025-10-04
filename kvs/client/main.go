@@ -504,8 +504,6 @@ func runTransferClient(clientId int, servers []*Client, done *atomic.Bool, resul
 	resultsCh <- opsCompleted
 }
 
-
-
 type HostList []string
 
 func (h *HostList) String() string {
@@ -524,6 +522,7 @@ func main() {
 	theta := flag.Float64("theta", 0.99, "Zipfian distribution skew parameter")
 	workload := flag.String("workload", "YCSB-B", "Workload type (YCSB-A, YCSB-B, YCSB-C)")
 	secs := flag.Int("secs", 30, "Duration in seconds for each client to run")
+	nClientThreads := flag.Int("clientThreads", 1, "Number of concurrent clients to run")
 	flag.Parse()
 
 	if len(hosts) == 0 {
@@ -567,12 +566,13 @@ func main() {
 		opsPerSec := float64(totalOps) / elapsed.Seconds()
 		fmt.Printf("transfer throughput %.2f ops/s\n", opsPerSec)
 	} else {
-		// Run normal YCSB workload
-		clientId := 0
-		go func(clientId int) {
-			workload := kvs.NewWorkload(*workload, *theta)
-			runClient(clientId, connections, &done, workload, resultsCh)
-		}(clientId)
+		// Run workload(s)
+		for clientId := 0; clientId < *nClientThreads; clientId++ {
+			go func(clientId int) {
+				workload := kvs.NewWorkload(*workload, *theta)
+				runClient(clientId, connections, &done, workload, resultsCh)
+			}(clientId)
+		}
 
 		time.Sleep(time.Duration(*secs) * time.Second)
 		done.Store(true)
