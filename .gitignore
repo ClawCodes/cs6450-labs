@@ -7,3 +7,6 @@ bin/
 README_theta_analysis.md
 
 *.csv
+
+# MAC
+.DS_Store
